@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { posix, win32 } from 'node:path';
 import { CliError } from './errors.js';
 import type { Runtime } from './runtime.js';
@@ -108,7 +108,6 @@ async function findProjectConfig(runtime: ConfigEnvironment): Promise<ConfigFile
 }
 
 async function exists(path: string): Promise<boolean> {
-  const { stat } = await import('node:fs/promises');
   return stat(path).then(
     () => true,
     () => false,
