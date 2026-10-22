@@ -23,7 +23,10 @@ const siblingImportBans = packages.map((name) => ({
           .filter((other) => other !== name && other !== 'core')
           .map((other) => ({
             group: [`@sdlc-tools/${other}`, `@sdlc-tools/${other}/*`],
-            message: `@sdlc-tools/${name} must not depend on @sdlc-tools/${other}; share code through @sdlc-tools/core.`,
+            message:
+              name === 'core'
+                ? `@sdlc-tools/core is the base of every package and must not depend on @sdlc-tools/${other}.`
+                : `@sdlc-tools/${name} must not depend on @sdlc-tools/${other}; share code through @sdlc-tools/core.`,
           })),
       },
     ],
