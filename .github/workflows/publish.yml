@@ -202,4 +202,4 @@ jobs:
           name: beta-tarballs
           path: ${{ runner.temp }}/tarballs
 
-      - run: node scripts/publish-tarballs.mjs --tag beta "$RUNNER_TEMP/tarballs"
+      - run: node scripts/publish-tarballs.mjs --tag beta --snapshot-only "$RUNNER_TEMP/tarballs"

@@ -68,7 +68,7 @@ Choose the packages and the bump, and describe the change for the people who wil
 
 `publish.yml` runs on every push to `main` or `develop`. Both channels publish through [trusted publishing](https://docs.npmjs.com/trusted-publishers): an OIDC token from GitHub, provenance attached, no npm token stored. In each channel one job packs the tarballs (`workspace:*` becomes the real version) without credentials, and a separate job uploads them; only that job has `id-token: write`.
 
-**Beta, from `develop`.** When changesets are pending, `changeset version --snapshot beta` runs in the runner only and nothing is committed. Each bumped package is published under the `beta` dist-tag as its next version plus a timestamp, for example `0.1.1-beta-20260101120000`. A push without pending changesets publishes nothing. Install a beta with `npm install @sdlc-tools/core@beta`.
+**Beta, from `develop`.** When changesets are pending, `changeset version --snapshot beta` runs in the runner only and nothing is committed. Each bumped package is published under the `beta` dist-tag (packages the changesets do not touch keep their released version and are skipped) as its next version plus a timestamp, for example `0.1.1-beta-20260101120000`. A push without pending changesets publishes nothing. Install a beta with `npm install @sdlc-tools/core@beta`.
 
 **Stable, from `main`.**
 
@@ -78,7 +78,7 @@ Choose the packages and the bump, and describe the change for the people who wil
 
 Release runs share one concurrency group and never overlap. The repository setting **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests** must be on for the Version Packages pull request. A pull request opened with the workflow token does not start the `CI` workflow; close and reopen it, or push to its branch, to run the checks. If `develop` is protected, the workflow must be allowed to push to it for `sync-develop`.
 
-To preview a beta locally, run `pnpm changeset version --snapshot beta` in a throwaway copy of the repository with a changeset added, build, run `pnpm -r pack --pack-destination <dir>`, and list the result with `node scripts/publish-tarballs.mjs --tag beta --dry-run <dir>`.
+To preview a beta locally, run `pnpm changeset version --snapshot beta` in a throwaway copy of the repository with a changeset added, build, run `pnpm -r pack --pack-destination <dir>`, and list the result with `node scripts/publish-tarballs.mjs --tag beta --snapshot-only --dry-run <dir>`.
 
 ### One-time bootstrap
 
