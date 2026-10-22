@@ -223,7 +223,7 @@ Endpoints, client id, scopes and the callback port are always parameters.
 
 ## Testing a tool
 
-`@sdlc-tools/core/testing` provides what a tool needs to test itself without a network, a keychain or a process:
+`@sdlc-tools/core/testing` provides what a tool needs to test itself without a network, a keychain, a disk or a process:
 
 | Export                                           | Purpose                                                                                                                             |
 | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
@@ -231,9 +231,10 @@ Endpoints, client id, scopes and the callback port are always parameters.
 | `mockFetch`, `forbidFetch`                       | A recording `fetch`; `forbidFetch` fails on any call, to prove a command failed locally.                                            |
 | `jsonResponse`, `textResponse`, `networkFailure` | Builders for responses and transport failures.                                                                                      |
 | `MemorySecretStore`                              | An in-memory credential store.                                                                                                      |
+| `MemoryFiles`                                    | An in-memory file reader for configuration files; starts empty, so no test depends on the disk.                                     |
 | `FakeAuthorizationServer`                        | An OAuth server that enforces PKCE verification, single-use codes and refresh-token rotation, and a browser that approves sign-ins. |
 
-By default `execute` uses `forbidFetch`, so a test must say when it expects network traffic.
+By default `execute` uses `forbidFetch`, so a test must say when it expects network traffic, and an empty `MemoryFiles`, so configuration files exist only when a test adds them. Library code reads files through `runtime.files` rather than `node:fs`, which keeps in-process tests independent of disk and scheduler latency.
 
 ## Security notes
 

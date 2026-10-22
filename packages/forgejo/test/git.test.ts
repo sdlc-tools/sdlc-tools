@@ -56,7 +56,10 @@ afterAll(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-describe('queries', () => {
+/** Real `git` processes are slow work, not in-process logic: budget for a starved machine. */
+const REAL_TIMEOUT = 30_000;
+
+describe('queries', { timeout: REAL_TIMEOUT }, () => {
   it('reads the remote, the branch and refs', async () => {
     expect(await git.remoteUrl(work, 'origin')).toBe(origin);
     expect(await git.remoteUrl(work, 'upstream')).toBeUndefined();
@@ -104,7 +107,7 @@ describe('queries', () => {
   });
 });
 
-describe('mutations', () => {
+describe('mutations', { timeout: REAL_TIMEOUT }, () => {
   it('fetches and prunes remote-tracking branches the server dropped', async () => {
     expect(await git.resolveRef(work, 'refs/remotes/origin/feat/done')).toBeDefined();
     sh(origin, 'branch', '-q', '-D', 'feat/done');

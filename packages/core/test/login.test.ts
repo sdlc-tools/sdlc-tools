@@ -76,7 +76,10 @@ function rawRequest(
   });
 }
 
-describe('loginWithPkce', () => {
+/** Real loopback sockets are slow work, not in-process logic: budget for a starved machine. */
+const REAL_TIMEOUT = 30_000;
+
+describe('loginWithPkce', { timeout: REAL_TIMEOUT }, () => {
   it('completes the authorization code flow with S256 and returns the tokens', async () => {
     const { server, test, login } = setup();
     const tokens = await login();

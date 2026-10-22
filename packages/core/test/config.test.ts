@@ -9,8 +9,10 @@ import {
   normalizeServerUrl,
   resolveSettings,
   userConfigPath,
+  nodeFiles,
   type ConfigEnvironment,
 } from '../src/index.js';
+import { MemoryFiles, createTestRuntime } from '../src/testing/index.js';
 
 let root: string;
 let home: string;
@@ -30,7 +32,7 @@ afterEach(async () => {
 });
 
 function environment(overrides: Partial<ConfigEnvironment> = {}): ConfigEnvironment {
-  return { env: {}, cwd: repo, homedir: home, platform: 'linux', ...overrides };
+  return { env: {}, cwd: repo, homedir: home, platform: 'linux', files: nodeFiles, ...overrides };
 }
 
 async function writeProject(data: unknown, directory = repo): Promise<void> {
@@ -262,5 +264,26 @@ describe('resolveSettings', () => {
     const error = await rejection(resolveSettings(environment(), 'tool', specs, {}));
     expect(error.code).toBe('config_invalid_value');
     expect(error.message).toContain('"tool.project"');
+  });
+});
+
+describe('loadConfigFiles through the runtime file port', () => {
+  it('reads the project and user files from the injected reader, not the disk', async () => {
+    const files = new MemoryFiles()
+      .directory('/work/.git')
+      .set('/work/.sdlc-tools.json', '{"tool":{"project":"ABC"}}')
+      .set(
+        '/home/test/.config/sdlc-tools/config.json',
+        '{"tool":{"host":"https://h.example.test"}}',
+      );
+    const { runtime } = createTestRuntime({ files });
+    const loaded = await loadConfigFiles(runtime);
+    expect(loaded.project?.data).toEqual({ tool: { project: 'ABC' } });
+    expect(loaded.user?.data).toEqual({ tool: { host: 'https://h.example.test' } });
+  });
+
+  it('finds nothing in an empty reader', async () => {
+    const { runtime } = createTestRuntime();
+    expect(await loadConfigFiles(runtime)).toEqual({ project: undefined, user: undefined });
   });
 });

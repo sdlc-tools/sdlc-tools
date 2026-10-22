@@ -1,6 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { MemoryFiles } from '@sdlc-tools/core/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ENV, SITE, body, fakeJira, jira } from './helpers.js';
 
@@ -154,11 +155,12 @@ describe('issue create', () => {
   });
 
   it('reads field aliases from the configuration and skips the lookup for JSON values', async () => {
-    await writeFile(
-      join(directory, '.sdlc-tools.json'),
-      JSON.stringify({ jira: { fields: { points: 'customfield_20001' } } }),
-    );
-    await writeFile(join(directory, '.git'), '');
+    const files = new MemoryFiles()
+      .directory('/work/.git')
+      .set(
+        '/work/.sdlc-tools.json',
+        JSON.stringify({ jira: { fields: { points: 'customfield_20001' } } }),
+      );
     const fetch = fakeJira({ 'POST /rest/api/3/issue': created });
     const run = await jira(
       [
@@ -173,7 +175,7 @@ describe('issue create', () => {
         '--field-json',
         'points=8',
       ],
-      { fetch, cwd: directory },
+      { fetch, files },
     );
     expect(run.code).toBe(0);
     expect(fetch.calls).toHaveLength(1);
