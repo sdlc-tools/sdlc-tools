@@ -1,27 +1,21 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { MemoryFiles } from '@sdlc-tools/core/testing';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { RecordedRequest } from '@sdlc-tools/core/testing';
 import { ISSUE, SITE, body, fakeJira, jira } from './helpers.js';
 
 const noContent = () => new Response(null, { status: 204 });
 const created = () => new Response(JSON.stringify({ id: '1', key: 'ABC-9' }), { status: 201 });
 
-let root: string;
-beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), 'sdlc-jira-workflow-'));
-  await mkdir(join(root, 'home'), { recursive: true });
-  await writeFile(join(root, '.git'), '');
-});
-afterEach(async () => {
-  await rm(root, { recursive: true, force: true });
+const root = '/work';
+let files: MemoryFiles;
+beforeEach(() => {
+  files = new MemoryFiles().directory(`${root}/.git`);
 });
 
 const configure = (jiraSection: unknown) =>
-  writeFile(join(root, '.sdlc-tools.json'), JSON.stringify({ jira: jiraSection }));
+  files.set(`${root}/.sdlc-tools.json`, JSON.stringify({ jira: jiraSection }));
 const run = (argv: readonly string[], fetch: ReturnType<typeof fakeJira>) =>
-  jira(argv, { fetch, cwd: root, homedir: join(root, 'home') });
+  jira(argv, { fetch, cwd: root, homedir: '/work/home', files });
 
 const ALIASES = {
   start: { id: 'customfield_30001', type: 'datetime' },
@@ -42,7 +36,7 @@ describe('field aliases, writing', () => {
   ] as const;
 
   it('writes typed aliases without asking the site for its field list', async () => {
-    await configure({ fields: ALIASES });
+    configure({ fields: ALIASES });
     const fetch = fakeJira({ 'POST /rest/api/3/issue': created });
     const result = await run(
       [...create, '--field', 'start=2026-03-02T09:00+09:00', '--field', 'BEGINS=2026-03-02'],
@@ -70,7 +64,7 @@ describe('field aliases, writing', () => {
       'start must be an ISO 8601 time',
     ],
   ])('fails before any request with %s', async (_name, entry, message) => {
-    await configure({ fields: ALIASES });
+    configure({ fields: ALIASES });
     const fetch = fakeJira({});
     const result = await run([...create, '--field', entry], fetch);
     expect(result.code).toBe(2);
@@ -79,7 +73,7 @@ describe('field aliases, writing', () => {
   });
 
   it('validates a date field found through the site as well', async () => {
-    await configure({ fields: { due2: 'customfield_30009' } });
+    configure({ fields: { due2: 'customfield_30009' } });
     const fetch = fakeJira({
       'GET /rest/api/3/field': [
         { id: 'customfield_30009', name: 'Review by', custom: true, schema: { type: 'date' } },
@@ -92,7 +86,7 @@ describe('field aliases, writing', () => {
   });
 
   it('refuses an unknown name before any write', async () => {
-    await configure({ fields: ALIASES });
+    configure({ fields: ALIASES });
     const fetch = fakeJira({ 'GET /rest/api/3/field': [] });
     const result = await run([...create, '--field', 'nothing=1'], fetch);
     expect(result.code).toBe(5);
@@ -109,7 +103,7 @@ describe('field aliases, writing', () => {
     ['an alias without an id', { x: { type: 'date' } }, 'a field id string'],
     ['an alias of the wrong kind', { x: 5 }, 'a field id string or an object'],
   ])('rejects %s in the configuration', async (_name, fields, message) => {
-    await configure({ fields });
+    configure({ fields });
     const fetch = fakeJira({});
     const result = await run([...create, '--field', 'x=1'], fetch);
     expect(result.code).toBe(2);
@@ -118,7 +112,7 @@ describe('field aliases, writing', () => {
   });
 
   it('writes typed aliases on edit as well', async () => {
-    await configure({ fields: ALIASES });
+    configure({ fields: ALIASES });
     const fetch = fakeJira({ 'PUT /rest/api/3/issue/ABC-1': noContent });
     const result = await run(
       ['issue', 'edit', 'ABC-1', '--field', 'start=2026-03-02T09:00:00Z'],
@@ -142,7 +136,7 @@ describe('field aliases, reading', () => {
   };
 
   it('shows the configured fields that have a value and returns all of them in --json', async () => {
-    await configure({ fields: ALIASES });
+    configure({ fields: ALIASES });
     const fetch = fakeJira({ 'GET /rest/api/3/issue/ABC-1': issue });
     const text = await run(['issue', 'view', 'ABC-1'], fetch);
     expect(text.stdout).toContain('Fields:\n  start: 2026-03-02T09:00:00.000+0900\n  points: 8\n');
@@ -155,14 +149,14 @@ describe('field aliases, reading', () => {
   });
 
   it('accepts aliases in list --fields', async () => {
-    await configure({ fields: ALIASES });
+    configure({ fields: ALIASES });
     const fetch = fakeJira({ 'GET /rest/api/3/search/jql': { issues: [] } });
     await run(['issue', 'list', '--jql', 'project = ABC', '--fields', 'points,labels'], fetch);
     expect(fetch.calls[0]?.url.searchParams.get('fields')).toContain('customfield_30003,labels');
   });
 
   it('renders a user, an option and rich text value readably', async () => {
-    await configure({
+    configure({
       fields: { owner: 'customfield_1', size: 'customfield_2', notes: 'customfield_3' },
     });
     const fetch = fakeJira({
@@ -215,7 +209,7 @@ describe('issue transition --to', () => {
   };
 
   it('makes every transition the configured order needs, in order', async () => {
-    await configure({ workflow: ORDER });
+    configure({ workflow: ORDER });
     const fetch = workflow('To Do', GRAPH);
     const result = await run(['issue', 'transition', 'ABC-1', '--to', 'done', '--json'], fetch);
     expect(result.code).toBe(0);
@@ -236,7 +230,7 @@ describe('issue transition --to', () => {
   });
 
   it('prints the path it took', async () => {
-    await configure({ workflow: ORDER });
+    configure({ workflow: ORDER });
     const result = await run(
       ['issue', 'transition', 'ABC-1', '--to', 'In Review'],
       workflow('To Do', GRAPH),
@@ -245,7 +239,7 @@ describe('issue transition --to', () => {
   });
 
   it('does not skip a stage the workflow offers on the way', async () => {
-    await configure({ workflow: ORDER });
+    configure({ workflow: ORDER });
     const graph = { ...GRAPH, 'In Progress': [step('21', 'In Review'), step('23', 'Done')] };
     const fetch = workflow('In Progress', graph);
     await run(['issue', 'transition', 'ABC-1', '--to', 'Done'], fetch);
@@ -256,7 +250,7 @@ describe('issue transition --to', () => {
   });
 
   it('takes a stage out of order when the workflow has no transition to the next one', async () => {
-    await configure({ workflow: ORDER });
+    configure({ workflow: ORDER });
     const graph = { ...GRAPH, 'In Progress': [step('23', 'Done')] };
     const fetch = workflow('In Progress', graph);
     const result = await run(['issue', 'transition', 'ABC-1', '--to', 'Done'], fetch);
@@ -264,7 +258,7 @@ describe('issue transition --to', () => {
   });
 
   it('sends the fields and the comment with the last transition only', async () => {
-    await configure({ workflow: ORDER });
+    configure({ workflow: ORDER });
     const fetch = workflow('In Progress', GRAPH);
     await run(
       [
@@ -289,7 +283,7 @@ describe('issue transition --to', () => {
   });
 
   it('does nothing when the issue is already there', async () => {
-    await configure({ workflow: ORDER });
+    configure({ workflow: ORDER });
     const fetch = workflow('Done', GRAPH);
     const result = await run(['issue', 'transition', 'ABC-1', '--to', 'done'], fetch);
     expect(result.code).toBe(0);
@@ -314,7 +308,7 @@ describe('issue transition --to', () => {
   });
 
   it('reports how far it got when the path breaks half-way', async () => {
-    await configure({ workflow: ORDER });
+    configure({ workflow: ORDER });
     const fetch = workflow('To Do', { ...GRAPH, 'In Progress': [step('22', 'To Do')] });
     const result = await run(['issue', 'transition', 'ABC-1', '--to', 'Done'], fetch);
     expect(result.code).toBe(5);
@@ -324,7 +318,7 @@ describe('issue transition --to', () => {
   });
 
   it('refuses to go backwards through the order', async () => {
-    await configure({ workflow: ORDER });
+    configure({ workflow: ORDER });
     const fetch = workflow('In Review', GRAPH);
     const result = await run(['issue', 'transition', 'ABC-1', '--to', 'To Do'], fetch);
     expect(result.code).toBe(5);
@@ -342,7 +336,7 @@ describe('issue transition --to', () => {
   });
 
   it('does not start when a field value is invalid', async () => {
-    await configure({ workflow: ORDER, fields: ALIASES });
+    configure({ workflow: ORDER, fields: ALIASES });
     const fetch = workflow('To Do', GRAPH);
     const result = await run(
       ['issue', 'transition', 'ABC-1', '--to', 'Done', '--field', 'start=nope'],
@@ -357,7 +351,7 @@ describe('issue transition --to', () => {
     ['repeated statuses', ['Done', 'done'], 'without repeated status names'],
     ['a non-list', 'To Do, Done', 'a list of at least two status names'],
   ])('rejects %s in jira.workflow', async (_name, value, message) => {
-    await configure({ workflow: value });
+    configure({ workflow: value });
     const result = await run(['issue', 'transition', 'ABC-1', '--to', 'Done'], fakeJira({}));
     expect(result.code).toBe(2);
     expect(result.stderr).toContain(message);
