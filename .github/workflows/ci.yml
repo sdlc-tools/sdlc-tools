@@ -1,0 +1,41 @@
+name: CI
+
+# Review evidence for pull requests, including those from forks. The same four
+# checks run locally with `pnpm lint`, `pnpm typecheck`, `pnpm test` and
+# `pnpm build`. Runs only for pull requests, so a commit is never checked twice.
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      # The lowest Node version the packages support (engines.node).
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.13.0
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+        env:
+          HUSKY: '0'
+
+      - run: pnpm lint
+      - run: pnpm format:check
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build

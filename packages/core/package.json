@@ -1,0 +1,55 @@
+{
+  "name": "@sdlc-tools/core",
+  "version": "0.0.0",
+  "description": "Shared foundation for sdlc-tools CLIs: credentials in the OS keychain, OAuth2 PKCE login, error and exit-code model, and the human/agent output contract.",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sdlc-tools/sdlc-tools.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/sdlc-tools/sdlc-tools/tree/main/packages/core#readme",
+  "bugs": "https://github.com/sdlc-tools/sdlc-tools/issues",
+  "keywords": [
+    "cli",
+    "keychain",
+    "oauth",
+    "pkce",
+    "ai-agents"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "exports": {
+    ".": {
+      "@sdlc-tools/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "@sdlc-tools/source": "./src/testing/index.ts",
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@napi-rs/keyring": "2.1.2"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5"
+  }
+}
