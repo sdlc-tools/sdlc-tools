@@ -1,0 +1,59 @@
+name: Publish Init
+
+# One-time bootstrap. npm trusted publishing is configured on a package that
+# already exists, so the first version of each package is pushed with a token.
+# It goes out as a prerelease under the `beta` dist-tag (for example
+# 0.1.0-beta.0), which leaves the first stable version to publish.yml. Every
+# release after this one runs there over OIDC without a token.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup
+        with:
+          registry-url: https://registry.npmjs.org
+
+      # Plans the versions the pending changesets will produce; nothing is committed.
+      - name: Plan versions
+        run: pnpm changeset version
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Make prerelease versions
+        run: node scripts/bootstrap-versions.mjs
+
+      - run: pnpm build
+
+      # `pnpm pack` replaces `workspace:*` with the real version in each tarball.
+      - name: Pack
+        run: pnpm -r pack --pack-destination "$RUNNER_TEMP/tarballs"
+
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          TARBALLS: ${{ runner.temp }}/tarballs
+        run: |
+          set -euo pipefail
+          for tarball in "$TARBALLS"/*.tgz; do
+            name=$(tar -xOf "$tarball" package/package.json | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).name')
+            version=$(tar -xOf "$tarball" package/package.json | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).version')
+            if npm view "$name@$version" version > /dev/null 2>&1; then
+              echo "$name@$version is already published; skipping"
+              continue
+            fi
+            npm publish "$tarball" --tag beta --access public
+          done

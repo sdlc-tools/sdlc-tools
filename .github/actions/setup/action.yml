@@ -1,0 +1,24 @@
+name: Set up workspace
+description: Installs pnpm, Node.js and the locked dependencies; the calling job checks out first.
+
+inputs:
+  registry-url:
+    description: Registry that setup-node writes token authentication for. Leave empty for trusted publishing.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v6
+
+    - uses: actions/setup-node@v7
+      with:
+        node-version: 24
+        registry-url: ${{ inputs.registry-url }}
+        cache: pnpm
+
+    - run: pnpm install --frozen-lockfile
+      shell: bash
+      env:
+        HUSKY: '0'
