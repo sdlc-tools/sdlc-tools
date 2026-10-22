@@ -36,7 +36,7 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 feat(core): add token refresh (#12)
 ```
 
-Branches are named `<type>/<issue>-<short-slug>`, for example `feat/12-token-refresh`. Pull requests are merged with a merge commit.
+Branches are named `<type>/<issue>-<short-slug>`, for example `feat/12-token-refresh`. They start from `develop`, and pull requests target `develop`. Pull requests are merged with a merge commit.
 
 `husky` installs the hooks on `pnpm install`: `lint-staged` checks staged files and `commitlint` checks the message.
 
@@ -58,14 +58,27 @@ pnpm changeset
 
 Choose the packages and the bump, and describe the change for the people who will read the changelog.
 
+### Branch model
+
+- `develop` is the integration branch. Every push to it can publish a beta prerelease.
+- `main` holds stable releases. It receives `develop` through a release pull request (`develop` → `main`, merge commit).
+- After a stable release, `main` is merged back into `develop`.
+
 ### How a release happens
 
-`publish.yml` runs on every push to `main`:
+`publish.yml` runs on every push to `main` or `develop`. Both channels publish through [trusted publishing](https://docs.npmjs.com/trusted-publishers): an OIDC token from GitHub, provenance attached, no npm token stored. In each channel one job packs the tarballs (`workspace:*` becomes the real version) without credentials, and a separate job uploads them; only that job has `id-token: write`.
 
-1. While changesets are pending, it opens or updates the **Version Packages** pull request, which bumps versions, rewrites the changelogs and consumes the changesets.
-2. Merging that pull request publishes every bumped package. The `pack` job builds and packs the tarballs (`workspace:*` becomes the real version), and the `publish` job uploads them to npm through [trusted publishing](https://docs.npmjs.com/trusted-publishers): an OIDC token from GitHub, provenance attached, no npm token stored. Only the `publish` job has `id-token: write`. It also pushes the git tags and creates the GitHub releases.
+**Beta, from `develop`.** When changesets are pending, `changeset version --snapshot beta` runs in the runner only and nothing is committed. Each bumped package is published under the `beta` dist-tag as its next version plus a timestamp, for example `0.1.1-beta-20260101120000`. A push without pending changesets publishes nothing. Install a beta with `npm install @sdlc-tools/core@beta`.
 
-Release runs share one concurrency group and never overlap. The repository setting **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests** must be on. A pull request opened with the workflow token does not start the `CI` workflow; close and reopen it, or push to its branch, to run the checks.
+**Stable, from `main`.**
+
+1. While changesets are pending, the workflow opens or updates the **Version Packages** pull request, which bumps versions, rewrites the changelogs and consumes the changesets.
+2. Merging that pull request publishes every bumped package under `latest`, pushes the git tags and creates the GitHub releases.
+3. The `sync-develop` job then merges `main` into `develop` with a merge commit and a plain push, so `develop` gets the released versions and the consumed changesets. A merge conflict or a push that lost a race fails the job; merge `main` into `develop` by hand in that case. The push uses the workflow token, so it does not start another release run.
+
+Release runs share one concurrency group and never overlap. The repository setting **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests** must be on for the Version Packages pull request. A pull request opened with the workflow token does not start the `CI` workflow; close and reopen it, or push to its branch, to run the checks. If `develop` is protected, the workflow must be allowed to push to it for `sync-develop`.
+
+To preview a beta locally, run `pnpm changeset version --snapshot beta` in a throwaway copy of the repository with a changeset added, build, run `pnpm -r pack --pack-destination <dir>`, and list the result with `node scripts/publish-tarballs.mjs --tag beta --dry-run <dir>`.
 
 ### One-time bootstrap
 
