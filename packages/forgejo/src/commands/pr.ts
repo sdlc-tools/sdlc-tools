@@ -7,7 +7,16 @@ import {
 } from '@sdlc-tools/core';
 import type { ForgejoApi } from '../api.js';
 import { pullDetails, pullLine } from '../format.js';
+import { mergeLogins, splitList } from '../lists.js';
+import { MERGE_METHODS, type MergeMethod } from '../model.js';
 import type { Ports } from '../ports.js';
+import {
+  buildMergePolicy,
+  chooseMergeMethod,
+  needsReviews,
+  needsStatuses,
+  type PolicyEvidence,
+} from '../policy.js';
 import {
   blockedError,
   buildTextRules,
@@ -15,11 +24,11 @@ import {
   gateCreate,
   gateMerge,
   markDraft,
-  splitList,
   type Verdict,
 } from '../rules.js';
 import { formatRepo, type RepoRef } from '../repo.js';
-import { resolveToolSettings } from '../settings.js';
+import { MERGE_POLICY_SETTINGS, resolveToolSettings } from '../settings.js';
+import { summarizeStatuses } from '../statuses.js';
 import {
   assertBranchName,
   openRepoSession,
@@ -318,7 +327,8 @@ export function prGroup(ports: Ports) {
         type: 'string',
         valueName: 'login',
         multiple: true,
-        description: 'Request a review from this user; repeat for several',
+        description:
+          'Request a review from this user, besides the configured reviewers; repeat for several',
       },
       label: {
         type: 'string',
@@ -358,8 +368,6 @@ export function prGroup(ports: Ports) {
         });
       }
       const head = await resolveHead(context, ports, options.head);
-      const reviewers =
-        options.reviewer.length > 0 ? options.reviewer : splitList(values.reviewers);
       const labelNames = options.label.length > 0 ? options.label : splitList(values.labels);
 
       const session = await openRepoSession(context, ports, values);
@@ -370,6 +378,17 @@ export function prGroup(ports: Ports) {
 
       // Labels are checked before the pull request exists, so a typo cannot leave a half-finished one behind.
       const labelIds = await resolveLabelIds(api, repo, labelNames);
+
+      // The server refuses the whole request when the author is among the reviewers, which would
+      // leave a team's fixed reviewers unrequested whenever one of them opens the pull request.
+      // Only the configured list is trimmed; a reviewer named on the command line is the caller's call.
+      const configured = splitList(values.reviewers);
+      const author =
+        configured.length === 0 ? undefined : (await api.currentUser()).login.toLowerCase();
+      const reviewers = mergeLogins(
+        configured.filter((login) => login.toLowerCase() !== author),
+        options.reviewer,
+      );
 
       const title = options.title.trim();
       const pull = await api.createPull(repo, {
@@ -519,16 +538,24 @@ export function prGroup(ports: Ports) {
 
   const merge = defineCommand({
     name: 'merge',
-    summary: 'Merge a pull request with a merge commit',
+    summary: 'Merge a pull request once the configured conditions hold',
     description: [
-      'Always merges with a merge commit; squash and rebase are not offered, because they leave the same',
-      'change under different hashes and turn later rebases into conflict resolution.',
+      'Merges with a merge commit unless the configuration allows other methods and --method names one.',
+      "The configured required statuses and approvals are judged on the pull request's current head,",
+      'so a result recorded for an older commit does not count; if any is missing nothing is sent and each missing item is listed.',
       'The server merges only the commit that was checked here: if the head moves in between, the merge is refused.',
       'The branch is deleted on the server afterwards unless --keep-branch is given.',
     ].join(' '),
     positionals: [{ name: 'number', description: 'Pull request number', required: true }],
     options: {
       ...repoOptions,
+      method: {
+        type: 'string',
+        valueName: 'method',
+        choices: MERGE_METHODS,
+        description:
+          'How to merge (default: the first method the configuration allows, "merge" unless configured)',
+      },
       matchHeadCommit: {
         type: 'string',
         valueName: 'sha',
@@ -554,36 +581,55 @@ export function prGroup(ports: Ports) {
       }
       const { values } = await resolveToolSettings(
         context,
-        ['host', 'profile', 'clientId', 'repo'],
-        {
-          host: options.host,
-          profile: options.profile,
-          repo: options.repo,
-        },
+        ['host', 'profile', 'clientId', 'repo', ...MERGE_POLICY_SETTINGS],
+        { host: options.host, profile: options.profile, repo: options.repo },
       );
+      // The policy and the method are settled before the first request, so a configuration that
+      // forbids what was asked for, or cannot be met, costs no round trip.
+      const policy = buildMergePolicy(values);
+      const method: MergeMethod = chooseMergeMethod(policy, options.method);
       const { api, repo } = await openRepoSession(context, ports, values);
 
       const pull = await api.getPull(repo, number);
-      const ci = await api.getCiSummary(repo, pull.head.sha);
+      // Everything is read for the head commit seen here; the merge below is pinned to the same commit.
+      const [history, reviews] = await Promise.all([
+        needsStatuses(policy) ? api.listStatuses(repo, pull.head.sha) : undefined,
+        needsReviews(policy) ? api.listReviews(repo, number) : undefined,
+      ]);
+      const ci =
+        history === undefined
+          ? await api.getCiSummary(repo, pull.head.sha)
+          : summarizeStatuses(history);
+      const evidence: PolicyEvidence = { statuses: history ?? [], reviews: reviews ?? [] };
       const verdict = gateMerge({
         pull,
         expectBase: options.expectBase,
         matchHead: options.matchHeadCommit,
         ci,
+        policy,
+        evidence,
       });
       if (verdict.violations.length > 0) {
         throw blockedError('merge_blocked', `#${number} was not merged.`, verdict, [
           `See the state of the pull request with \`sdlc-forgejo pr view ${number}\`.`,
+          'Run the command again once everything listed above is in place.',
         ]);
       }
       const warnings = [...verdict.warnings];
       for (const warning of warnings) context.log(`warning: ${warning}`);
 
       await api.mergePull(repo, number, {
-        title: `Merge pull request #${number} from ${pull.head.ref}`,
-        message: pull.title,
+        method,
         deleteBranch: !options.keepBranch,
         headSha: pull.head.sha,
+        ...(method === 'merge'
+          ? {
+              commitText: {
+                title: `Merge pull request #${number} from ${pull.head.ref}`,
+                message: pull.title,
+              },
+            }
+          : {}),
       });
 
       // The answer to the merge request is not the proof; the pull request is read again.
@@ -612,7 +658,7 @@ export function prGroup(ports: Ports) {
           merged: true,
           repo: formatRepo(repo),
           number,
-          method: 'merge',
+          method,
           mergeCommitSha: after.mergeCommitSha,
           head: pull.head.ref,
           base: after.base.ref,

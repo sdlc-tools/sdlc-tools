@@ -1,7 +1,17 @@
 import { CliError, isCliError, urlPath, type HttpClient } from '@sdlc-tools/core';
-import type { Branch, CiSummary, Label, PullRequest, Repository, Review } from './model.js';
+import type {
+  Branch,
+  CiSummary,
+  Label,
+  MergeMethod,
+  PullRequest,
+  Repository,
+  Review,
+  StatusRecord,
+} from './model.js';
 import { isDraftTitle } from './rules.js';
 import { formatRepo, repoPath, type RepoRef } from './repo.js';
+import { summarizeStatuses } from './statuses.js';
 
 const PAGE_SIZE = 50;
 const MAX_PAGES = 200;
@@ -39,8 +49,10 @@ interface RawPull {
 }
 
 interface RawReview {
+  readonly id?: number;
   readonly user?: RawUser | null;
   readonly state?: string;
+  readonly commit_id?: string;
   readonly stale?: boolean;
   readonly dismissed?: boolean;
 }
@@ -87,34 +99,15 @@ function toPullRequest(raw: RawPull): PullRequest {
   };
 }
 
-/** Folds the status history of a commit into the latest state per check; a rerun replaces the earlier result. */
-export function summarizeStatuses(statuses: readonly RawStatus[]): CiSummary {
-  const latest = new Map<string, RawStatus>();
-  for (const status of [...statuses].sort((a, b) => (b.id ?? 0) - (a.id ?? 0))) {
-    if (status.context !== undefined && !latest.has(status.context)) {
-      latest.set(status.context, status);
-    }
-  }
-  const pick = (states: readonly string[]) =>
-    [...latest.values()]
-      .filter((status) => states.includes(status.status ?? ''))
-      .map((status) => ({ context: status.context ?? '', url: status.target_url ?? null }));
-  return {
-    checked: latest.size,
-    passed: pick(['success']).length,
-    failed: pick(['failure', 'error']),
-    pending: pick(['pending', 'warning']),
-  };
-}
-
 export type PullState = 'open' | 'closed' | 'all';
 
 export interface MergeRequest {
-  readonly title: string;
-  readonly message: string;
+  readonly method: MergeMethod;
   readonly deleteBranch: boolean;
   /** The commit the server must still find at the head; protects against merging something unreviewed. */
   readonly headSha: string;
+  /** The merge commit's title and message; without them the server writes its own. */
+  readonly commitText?: { readonly title: string; readonly message: string };
 }
 
 /** Typed access to the parts of the Forgejo / Gitea REST API the commands use. */
@@ -278,33 +271,70 @@ export class ForgejoApi {
   }
 
   async listReviews(repo: RepoRef, number: number): Promise<Review[]> {
-    const { data } = await this.#http.get<RawReview[]>(
+    const raws = await this.#collect<RawReview>(
       `${repoPath(repo)}${urlPath`/pulls/${number}`}/reviews`,
-      { resource: `the reviews of pull request #${number}` },
+      `the reviews of pull request #${number}`,
     );
-    return (Array.isArray(data) ? data : []).map((raw) => ({
+    return raws.map((raw) => ({
+      id: raw.id ?? 0,
       reviewer: raw.user?.login ?? null,
       state: raw.state ?? 'COMMENT',
+      commit: raw.commit_id === undefined || raw.commit_id === '' ? null : raw.commit_id,
       stale: raw.stale === true,
       dismissed: raw.dismissed === true,
     }));
+  }
+
+  /** Every result reported for a commit, reruns included. Rejects when this account may not read them. */
+  async listStatuses(repo: RepoRef, sha: string): Promise<StatusRecord[]> {
+    const raws = await this.#collect<RawStatus>(
+      `${repoPath(repo)}${urlPath`/commits/${sha}`}/statuses`,
+      `the CI results of commit ${sha.slice(0, 8)}`,
+    );
+    return raws.flatMap((raw) =>
+      raw.context === undefined
+        ? []
+        : [
+            {
+              id: raw.id ?? 0,
+              context: raw.context,
+              state: raw.status ?? '',
+              // A status without a link comes back as "" on a real server.
+              url: raw.target_url === undefined || raw.target_url === '' ? null : raw.target_url,
+            },
+          ],
+    );
   }
 
   /** CI results of a commit; `undefined` when this account may not read them. */
   async getCiSummary(repo: RepoRef, sha: string): Promise<CiSummary | undefined> {
     if (sha === '') return undefined;
     try {
-      const { data } = await this.#http.get<RawStatus[]>(
-        `${repoPath(repo)}${urlPath`/commits/${sha}`}/statuses`,
-        { query: { limit: PAGE_SIZE }, resource: `the CI results of commit ${sha.slice(0, 8)}` },
-      );
-      return summarizeStatuses(Array.isArray(data) ? data : []);
+      return summarizeStatuses(await this.listStatuses(repo, sha));
     } catch (error) {
       if (isCliError(error) && (error.kind === 'not-found' || error.kind === 'permission')) {
         return undefined;
       }
       throw error;
     }
+  }
+
+  /** All pages of a list the server pages; a decision made on a partial list could be wrong. */
+  async #collect<T>(path: string, resource: string): Promise<T[]> {
+    const items: T[] = [];
+    for (let page = 1; page <= MAX_PAGES; page += 1) {
+      const response = await this.#http.get<T[]>(path, {
+        query: { page, limit: PAGE_SIZE },
+        resource,
+      });
+      const batch = Array.isArray(response.data) ? response.data : [];
+      items.push(...batch);
+      const total = Number(response.headers.get('x-total-count'));
+      const more =
+        Number.isFinite(total) && total > 0 ? items.length < total : batch.length >= PAGE_SIZE;
+      if (batch.length === 0 || !more) break;
+    }
+    return items;
   }
 
   async listLabels(repo: RepoRef): Promise<Label[]> {
@@ -337,14 +367,22 @@ export class ForgejoApi {
     });
   }
 
-  /** Merges with a merge commit. There is no method parameter: squash and rebase are not offered. */
+  /**
+   * Merges with the requested method, pinned to the head the caller checked. `force_merge` and
+   * `merge_when_checks_succeed` are never sent: the first would let an administrator skip the
+   * server's protection, the second would merge later, on a head nobody judged.
+   */
   async mergePull(repo: RepoRef, number: number, request: MergeRequest): Promise<void> {
     try {
       await this.#http.post(`${repoPath(repo)}${urlPath`/pulls/${number}`}/merge`, {
         body: {
-          Do: 'merge',
-          MergeTitleField: request.title,
-          MergeMessageField: request.message,
+          Do: request.method,
+          ...(request.commitText === undefined
+            ? {}
+            : {
+                MergeTitleField: request.commitText.title,
+                MergeMessageField: request.commitText.message,
+              }),
           delete_branch_after_merge: request.deleteBranch,
           head_commit_id: request.headSha,
         },
@@ -357,6 +395,7 @@ export class ForgejoApi {
           causes: [
             'A branch protection rule is not satisfied, such as required approvals or status checks.',
             'The pull request is a draft, has conflicts, or its head changed since it was read.',
+            'The repository does not enable the requested merge method.',
           ],
           next: [`Run \`sdlc-forgejo pr view ${number}\` to see where the pull request stands.`],
         });

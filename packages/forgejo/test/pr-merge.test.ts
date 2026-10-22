@@ -179,6 +179,15 @@ describe('pr merge and what the server says', () => {
     expect((run.json() as { warnings: string[] }).warnings).toHaveLength(2);
   });
 
+  it('names a failed check without a link as it is, not as "()"', async () => {
+    const lab = await open();
+    lab.forgejo.statuses.set(HEAD, [
+      { id: 1, context: 'ci/test', status: 'failure', target_url: '' },
+    ]);
+    const run = await lab.run(merge);
+    expect(run.stderr).toContain('warning: CI check failed: ci/test\n');
+  });
+
   it('lets a rerun replace an earlier failure of the same check', async () => {
     const lab = await open();
     lab.forgejo.statuses.set(HEAD, [

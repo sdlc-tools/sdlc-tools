@@ -26,8 +26,12 @@ export interface FakePull {
 }
 
 export interface FakeReview {
+  /** Defaults to the position in the list; set it to put reviews out of order. */
+  id?: number;
   user: string;
   state: string;
+  /** The commit the review was written on: the head at read time when omitted, left out of the answer when `null`. */
+  commit?: string | null;
   stale?: boolean;
   dismissed?: boolean;
 }
@@ -61,6 +65,8 @@ export class FakeForgejo {
   readonly bodies: { route: string; body: unknown }[] = [];
   /** Makes the next merge request fail with this status. */
   failMerge: number | undefined;
+  /** The merge methods the repository has enabled; a request for another one is refused. */
+  enabledMergeMethods = new Set(['merge', 'rebase', 'rebase-merge', 'squash', 'fast-forward-only']);
   /** Keeps the head branch after a merge, as a server with a protection rule does. */
   keepBranchOnMerge = false;
   pageCap = 50;
@@ -104,6 +110,18 @@ export class FakeForgejo {
     };
     this.pulls.push(pull);
     return pull;
+  }
+
+  /** A new commit lands on the pull request's branch: reviews written before it go stale, as on a real server. */
+  advanceHead(number: number, sha: string): void {
+    const pull = this.pulls.find((candidate) => candidate.number === number);
+    if (pull === undefined) throw new Error(`no pull request #${number}`);
+    for (const review of this.reviews.get(number) ?? []) {
+      review.commit ??= pull.head.sha;
+      review.stale = true;
+    }
+    pull.head.sha = sha;
+    this.branches.set(pull.head.ref, { sha, protected: false });
   }
 
   count(route: string): number {
@@ -157,7 +175,7 @@ export class FakeForgejo {
     if (pullMatch !== null) {
       const pull = this.pulls.find((candidate) => candidate.number === Number(pullMatch[1]));
       if (pull === undefined) return jsonResponse(404, { message: 'pull request does not exist' });
-      return this.#pullRoute(pull, pullMatch[2] ?? '', method, body);
+      return this.#pullRoute(request, pull, pullMatch[2] ?? '', method, body);
     }
 
     if (rest === '/labels' && method === 'GET') return jsonResponse(200, this.labels);
@@ -177,7 +195,7 @@ export class FakeForgejo {
 
     const statusMatch = /^\/commits\/([^/]+)\/statuses$/.exec(rest);
     if (statusMatch?.[1] !== undefined) {
-      return jsonResponse(200, this.statuses.get(statusMatch[1]) ?? []);
+      return this.#page(request, this.statuses.get(statusMatch[1]) ?? []);
     }
     return jsonResponse(404, { message: `no route for ${method} ${rest}` });
   }
@@ -212,6 +230,15 @@ export class FakeForgejo {
     };
   }
 
+  /** One page of a list, with the total in a header, as the server pages every list. */
+  #page(request: RecordedRequest, items: readonly unknown[]): Response {
+    const page = Number(request.url.searchParams.get('page') ?? '1');
+    const limit = Math.min(Number(request.url.searchParams.get('limit') ?? '30'), this.pageCap);
+    return jsonResponse(200, items.slice((page - 1) * limit, page * limit), {
+      'x-total-count': String(items.length),
+    });
+  }
+
   #listPulls(request: RecordedRequest): Response {
     const state = request.url.searchParams.get('state') ?? 'open';
     const page = Number(request.url.searchParams.get('page') ?? '1');
@@ -242,7 +269,13 @@ export class FakeForgejo {
     return jsonResponse(201, this.#render(pull));
   }
 
-  #pullRoute(pull: FakePull, suffix: string, method: string, body: unknown): Response {
+  #pullRoute(
+    request: RecordedRequest,
+    pull: FakePull,
+    suffix: string,
+    method: string,
+    body: unknown,
+  ): Response {
     if (suffix === '' && method === 'GET') return jsonResponse(200, this.#render(pull));
 
     if (suffix === '/requested_reviewers') {
@@ -250,6 +283,9 @@ export class FakeForgejo {
       const unknown = reviewers.find((reviewer) => this.unknownUsers.has(reviewer));
       if (unknown !== undefined)
         return jsonResponse(422, { message: `user does not exist [name: ${unknown}]` });
+      if (method === 'POST' && reviewers.some((reviewer) => reviewer === pull.user)) {
+        return jsonResponse(422, { message: "poster of pr can't be reviewer" });
+      }
       if (method === 'POST') {
         pull.reviewers.push(...reviewers.filter((reviewer) => !pull.reviewers.includes(reviewer)));
         return jsonResponse(201, []);
@@ -259,15 +295,15 @@ export class FakeForgejo {
     }
 
     if (suffix === '/reviews' && method === 'GET') {
-      return jsonResponse(
-        200,
-        (this.reviews.get(pull.number) ?? []).map((review) => ({
-          user: { login: review.user },
-          state: review.state,
-          stale: review.stale ?? false,
-          dismissed: review.dismissed ?? false,
-        })),
-      );
+      const reviews = (this.reviews.get(pull.number) ?? []).map((review, index) => ({
+        id: review.id ?? index + 1,
+        user: { login: review.user },
+        state: review.state,
+        ...(review.commit === null ? {} : { commit_id: review.commit ?? pull.head.sha }),
+        stale: review.stale ?? false,
+        dismissed: review.dismissed ?? false,
+      }));
+      return this.#page(request, reviews);
     }
 
     if (suffix === '/merge' && method === 'POST')
@@ -283,7 +319,7 @@ export class FakeForgejo {
     }
     if (pull.merged || pull.state !== 'open')
       return jsonResponse(404, { message: 'pull request is not open' });
-    if (body.Do !== 'merge')
+    if (!this.enabledMergeMethods.has(String(body.Do)))
       return jsonResponse(422, { message: `merge style ${String(body.Do)} is not allowed` });
     if (body.head_commit_id !== undefined && body.head_commit_id !== pull.head.sha) {
       return jsonResponse(409, { message: 'head commit does not match' });
