@@ -1,16 +1,6 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { MemoryFiles } from '@sdlc-tools/core/testing';
+import { describe, expect, it } from 'vitest';
 import { SITE, body, fakeJira, jira } from './helpers.js';
-
-let directory: string;
-beforeEach(async () => {
-  directory = await mkdtemp(join(tmpdir(), 'sdlc-jira-'));
-});
-afterEach(async () => {
-  await rm(directory, { recursive: true, force: true });
-});
 
 const created = (id: string) =>
   new Response(JSON.stringify({ id }), {
@@ -32,13 +22,13 @@ describe('issue comment add', () => {
   });
 
   it('reads the comment from a file', async () => {
-    await writeFile(join(directory, 'note.md'), '- one\n- two');
+    const files = new MemoryFiles().set('/work/note.md', '- one\n- two');
     const fetch = fakeJira({ 'POST /rest/api/3/issue/ABC-1/comment': () => created('78') });
     const run = await jira(
       ['issue', 'comment', 'add', 'ABC-1', '--body-file', 'note.md', '--json'],
       {
         fetch,
-        cwd: directory,
+        files,
       },
     );
     expect(run.json()).toEqual({ key: 'ABC-1', id: '78', url: `${SITE}/browse/ABC-1` });

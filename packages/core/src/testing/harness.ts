@@ -2,6 +2,7 @@ import { runCli } from '../cli.js';
 import type { Cli } from '../command.js';
 import type { Runtime } from '../runtime.js';
 import { forbidFetch, type MockFetch } from './fetch.js';
+import { MemoryFiles } from './memory-files.js';
 import { MemorySecretStore } from './memory-store.js';
 
 export interface TestRuntimeOptions {
@@ -12,6 +13,8 @@ export interface TestRuntimeOptions {
   /** Defaults to {@link forbidFetch}: a test that reaches the network must say so. */
   readonly fetch?: MockFetch;
   readonly store?: MemorySecretStore;
+  /** Defaults to an empty {@link MemoryFiles}: no configuration file exists unless a test adds one. */
+  readonly files?: MemoryFiles;
   readonly now?: () => number;
   readonly openUrl?: (url: string) => Promise<void>;
   readonly signal?: AbortSignal;
@@ -57,6 +60,7 @@ export function createTestRuntime(options: TestRuntimeOptions = {}): TestRuntime
     },
     fetch: fetch.fetch,
     store,
+    files: options.files ?? new MemoryFiles(),
     now: options.now ?? (() => TEST_NOW),
     openUrl:
       options.openUrl ??

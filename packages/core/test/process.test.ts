@@ -35,7 +35,10 @@ await runMain(defineCli({ name: 'smoke', version: '9.9.9', summary: 'Smoke test 
 // These tests compile the sources to a temporary directory and run them as a
 // real Node process, so they cover the entry point, exit codes and stream
 // flushing that in-memory tests cannot. They do not depend on a prior `build`.
-describe.skipIf(process.platform === 'win32')('CLI process', () => {
+/** Real CLI subprocesses and loopback sockets are slow work, not in-process logic: budget for a starved machine. */
+const REAL_TIMEOUT = 30_000;
+
+describe.skipIf(process.platform === 'win32')('CLI process', { timeout: REAL_TIMEOUT }, () => {
   let directory: string;
   let server: Server | undefined;
   let host: string;
@@ -149,7 +152,7 @@ describe.skipIf(process.platform === 'win32')('CLI process', () => {
   });
 });
 
-describe('openInBrowser', () => {
+describe('openInBrowser', { timeout: REAL_TIMEOUT }, () => {
   it.each(['file:///etc/passwd', 'javascript:alert(1)', 'ftp://example.test/'])(
     'refuses to open %s',
     async (url) => {

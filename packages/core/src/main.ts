@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { runCli } from './cli.js';
 import type { Cli } from './command.js';
 import { KeychainSecretStore } from './credentials/keychain.js';
+import { nodeFiles } from './files.js';
 import type { Runtime } from './runtime.js';
 
 /** Opens `url` in the default browser. Only http(s) addresses are launched. */
@@ -38,6 +39,7 @@ export function createNodeRuntime(signal?: AbortSignal): Runtime {
     stdout: process.stdout,
     stderr: process.stderr,
     fetch: globalThis.fetch,
+    files: nodeFiles,
     store: new KeychainSecretStore({ platform: process.platform }),
     now: () => Date.now(),
     openUrl: (url) => openInBrowser(url, process.platform),

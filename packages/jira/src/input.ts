@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { CliError, type CommandContext } from '@sdlc-tools/core';
 
@@ -26,7 +25,7 @@ export interface TextSource {
 
 /** Reads text given inline or from a file; exactly one source is allowed and the text must not be blank. */
 export async function readText(
-  context: Pick<CommandContext, 'cwd'>,
+  context: Pick<CommandContext, 'cwd' | 'files'>,
   source: TextSource,
 ): Promise<string | undefined> {
   if (source.inline !== undefined && source.file !== undefined) {
@@ -40,15 +39,18 @@ export async function readText(
   }
   let text = source.inline;
   if (source.file !== undefined) {
-    try {
-      text = await readFile(resolve(context.cwd, source.file), 'utf8');
-    } catch (error) {
-      throw new CliError('usage', `Cannot read ${source.fileFlag} ${source.file}.`, {
+    const unreadable = (cause?: unknown) =>
+      new CliError('usage', `Cannot read ${source.fileFlag} ${source.file}.`, {
         code: 'file_unreadable',
         next: ['Check that the path exists and is a readable file.'],
-        cause: error,
+        cause,
       });
+    try {
+      text = await context.files.readText(resolve(context.cwd, source.file));
+    } catch (error) {
+      throw unreadable(error);
     }
+    if (text === undefined) throw unreadable();
   }
   if (text?.trim() === '') {
     throw new CliError('usage', `The ${source.label} is empty.`, { code: 'empty_text' });

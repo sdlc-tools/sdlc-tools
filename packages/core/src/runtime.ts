@@ -1,3 +1,4 @@
+import type { FileReader } from './files.js';
 import type { SecretStore } from './credentials/store.js';
 
 export interface WritableLike {
@@ -20,6 +21,7 @@ export interface Runtime {
   readonly stderr: WritableLike;
   readonly fetch: typeof globalThis.fetch;
   readonly store: SecretStore;
+  readonly files: FileReader;
   /** Milliseconds since the Unix epoch. */
   readonly now: () => number;
   /** Opens a URL in the user's browser. Rejects when no browser could be launched. */

@@ -1,12 +1,12 @@
-import { readFile, stat } from 'node:fs/promises';
 import { posix, win32 } from 'node:path';
 import { CliError } from './errors.js';
+import type { FileReader } from './files.js';
 import type { Runtime } from './runtime.js';
 
 /** Searched for from the working directory upward, stopping at the repository root. */
 export const PROJECT_CONFIG_FILE = '.sdlc-tools.json';
 
-export type ConfigEnvironment = Pick<Runtime, 'env' | 'cwd' | 'homedir' | 'platform'>;
+export type ConfigEnvironment = Pick<Runtime, 'env' | 'cwd' | 'homedir' | 'platform' | 'files'>;
 
 export interface ConfigFile {
   readonly path: string;
@@ -48,18 +48,19 @@ function findSecretKey(value: unknown, trail: readonly string[]): string | undef
   return undefined;
 }
 
-async function readConfigFile(path: string): Promise<ConfigFile | undefined> {
-  let text: string;
+async function readConfigFile(files: FileReader, path: string): Promise<ConfigFile | undefined> {
+  let text: string | undefined;
   try {
-    text = await readFile(path, 'utf8');
+    text = await files.readText(path);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
     throw new CliError('config', `Cannot read the configuration file ${path}.`, {
       code: 'config_unreadable',
       next: ['Check the file permissions and that the path is a regular file.'],
       cause: error,
     });
   }
+
+  if (text === undefined) return undefined;
 
   let data: unknown;
   try {
@@ -98,20 +99,13 @@ async function findProjectConfig(runtime: ConfigEnvironment): Promise<ConfigFile
   const path = pathApi(runtime.platform);
   let directory = runtime.cwd;
   for (;;) {
-    const found = await readConfigFile(path.join(directory, PROJECT_CONFIG_FILE));
+    const found = await readConfigFile(runtime.files, path.join(directory, PROJECT_CONFIG_FILE));
     if (found !== undefined) return found;
-    if (await exists(path.join(directory, '.git'))) return undefined;
+    if (await runtime.files.exists(path.join(directory, '.git'))) return undefined;
     const parent = path.dirname(directory);
     if (parent === directory) return undefined;
     directory = parent;
   }
-}
-
-async function exists(path: string): Promise<boolean> {
-  return stat(path).then(
-    () => true,
-    () => false,
-  );
 }
 
 /**
@@ -122,7 +116,7 @@ async function exists(path: string): Promise<boolean> {
 export async function loadConfigFiles(runtime: ConfigEnvironment): Promise<ConfigFiles> {
   const [project, user] = await Promise.all([
     findProjectConfig(runtime),
-    readConfigFile(userConfigPath(runtime)),
+    readConfigFile(runtime.files, userConfigPath(runtime)),
   ]);
   return { project, user };
 }
