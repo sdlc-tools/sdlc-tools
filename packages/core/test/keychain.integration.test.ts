@@ -1,15 +1,26 @@
 import { randomBytes } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
-import { KeychainSecretStore, parseCredential, serializeCredential } from '../src/index.js';
+import {
+  KeychainSecretStore,
+  parseCredential,
+  serializeCredential,
+  type LinuxStore,
+} from '../src/index.js';
 
 /**
  * Exercises the real operating system credential store. Opt in with
  * SDLC_TEST_KEYCHAIN=1; the keychain workflow runs it on macOS, Windows and Linux.
+ * On Linux, SDLC_TEST_KEYCHAIN_LINUX_STORE pins `secret-service` or `keyutils`.
  * Every item lives under a throwaway service name and is removed afterwards.
  */
 describe.skipIf(process.env.SDLC_TEST_KEYCHAIN !== '1')('OS keychain', () => {
   const service = `sdlc-tools-test-${randomBytes(6).toString('hex')}`;
-  const store = new KeychainSecretStore({ service, platform: process.platform });
+  const linuxStore = process.env.SDLC_TEST_KEYCHAIN_LINUX_STORE as LinuxStore | undefined;
+  const store = new KeychainSecretStore({
+    service,
+    platform: process.platform,
+    ...(linuxStore === undefined ? {} : { linuxStore }),
+  });
   const accounts = new Set<string>();
 
   function account(name: string): string {

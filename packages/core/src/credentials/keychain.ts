@@ -9,8 +9,14 @@ export interface KeyringEntry {
   deletePassword(): Promise<boolean>;
 }
 
+export type LinuxStore = 'secret-service' | 'keyutils';
+
 export interface KeyringBinding {
-  AsyncEntry: new (service: string, username: string) => KeyringEntry;
+  AsyncEntry: new (
+    service: string,
+    username: string,
+    options?: { linux?: { store?: LinuxStore } } | null,
+  ) => KeyringEntry;
 }
 
 export interface KeychainOptions {
@@ -25,6 +31,12 @@ export interface KeychainOptions {
   readonly chunkSize?: number;
   /** Used to pick platform-specific advice in errors. */
   readonly platform: NodeJS.Platform;
+  /**
+   * Linux only. By default the Secret Service is used and the kernel keyring
+   * is the fallback when no service is running. Pinning a store makes it fail
+   * instead of falling back.
+   */
+  readonly linuxStore?: LinuxStore;
   /** Loads the native binding; replaced in tests. */
   readonly loadBinding?: () => Promise<KeyringBinding>;
 }
@@ -49,6 +61,7 @@ export class KeychainSecretStore implements SecretStore {
   readonly #service: string;
   readonly #chunkSize: number;
   readonly #platform: NodeJS.Platform;
+  readonly #linuxStore: LinuxStore | undefined;
   readonly #loadBinding: () => Promise<KeyringBinding>;
   #binding: Promise<KeyringBinding> | undefined;
 
@@ -56,6 +69,7 @@ export class KeychainSecretStore implements SecretStore {
     this.#service = options.service ?? KEYCHAIN_SERVICE;
     this.#chunkSize = options.chunkSize ?? DEFAULT_CHUNK_SIZE;
     this.#platform = options.platform;
+    this.#linuxStore = options.linuxStore;
     this.#loadBinding = options.loadBinding ?? loadNativeBinding;
     if (!Number.isInteger(this.#chunkSize) || this.#chunkSize < 1) {
       throw new Error('chunkSize must be a positive integer.');
@@ -133,7 +147,11 @@ export class KeychainSecretStore implements SecretStore {
       this.#binding = undefined;
       throw this.#unavailable(error);
     }
-    return new binding.AsyncEntry(this.#service, account);
+    return new binding.AsyncEntry(
+      this.#service,
+      account,
+      this.#linuxStore === undefined ? undefined : { linux: { store: this.#linuxStore } },
+    );
   }
 
   async #read(account: string): Promise<string | null> {

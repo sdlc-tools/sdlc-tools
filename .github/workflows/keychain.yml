@@ -1,0 +1,87 @@
+name: Keychain
+
+# Exercises the real operating system credential stores, which no other check
+# can reach: macOS Keychain, Windows Credential Manager, and Linux through the
+# Secret Service API (GNOME Keyring) as well as the kernel keyring fallback.
+# Runs for pull requests that touch credential storage, and on demand.
+on:
+  pull_request:
+    paths:
+      - packages/core/src/credentials/**
+      - packages/core/test/keychain.integration.test.ts
+      - packages/core/package.json
+      - pnpm-lock.yaml
+      - .github/workflows/keychain.yml
+  workflow_dispatch:
+
+concurrency:
+  group: keychain-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  SDLC_TEST_KEYCHAIN: '1'
+  HUSKY: '0'
+
+jobs:
+  native:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.13.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec vitest run packages/core/test/keychain.integration.test.ts
+
+  linux-secret-service:
+    name: ubuntu-latest (Secret Service)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.13.0
+          cache: pnpm
+      - run: |
+          sudo apt-get update
+          sudo apt-get install --yes gnome-keyring libsecret-1-0 dbus-x11
+      - run: pnpm install --frozen-lockfile
+      # The keyring daemon needs a D-Bus session and an unlocked login collection.
+      # The store is pinned, so the job fails instead of silently falling back to the kernel keyring.
+      - run: |
+          dbus-run-session -- bash -c '
+            echo -n "" | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+            pnpm exec vitest run packages/core/test/keychain.integration.test.ts
+          '
+        env:
+          SDLC_TEST_KEYCHAIN_LINUX_STORE: secret-service
+
+  linux-keyutils:
+    name: ubuntu-latest (kernel keyring)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.13.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Headless hosts, containers and SSH sessions have no keyring daemon; the kernel keyring is the fallback there.
+      - run: pnpm exec vitest run packages/core/test/keychain.integration.test.ts
+        env:
+          SDLC_TEST_KEYCHAIN_LINUX_STORE: keyutils

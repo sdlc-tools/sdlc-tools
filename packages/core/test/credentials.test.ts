@@ -315,6 +315,23 @@ describe('KeychainSecretStore', () => {
     expect((await rejection(store(binding).get('acct'))).code).toBe('credential_corrupt');
   });
 
+  it('passes a pinned Linux store to the native entry, and nothing by default', async () => {
+    const seen: unknown[] = [];
+    const binding: KeyringBinding = {
+      AsyncEntry: class {
+        constructor(_service: string, _username: string, options?: unknown) {
+          seen.push(options);
+        }
+        getPassword = () => Promise.resolve(null);
+        setPassword = () => Promise.resolve();
+        deletePassword = () => Promise.resolve(false);
+      },
+    };
+    await store(binding).get('a');
+    await store(binding, { linuxStore: 'keyutils' }).get('a');
+    expect(seen).toEqual([undefined, { linux: { store: 'keyutils' } }]);
+  });
+
   it('loads the native binding lazily and once', async () => {
     const { binding } = fakeBinding();
     const loadBinding = vi.fn(() => Promise.resolve(binding));
