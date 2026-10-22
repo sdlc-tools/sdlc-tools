@@ -1,6 +1,6 @@
 {
   "name": "@sdlc-tools/jira",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Jira Cloud command-line client designed for people and AI agents: issues, transitions, comments and worklogs with API token credentials in the OS keychain.",
   "license": "MIT",
   "type": "module",
