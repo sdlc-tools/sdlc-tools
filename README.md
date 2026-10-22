@@ -30,6 +30,7 @@ The full specification is in [`packages/core`](./packages/core#readme).
 | Package                                      | Purpose                                                                                                                                                                |
 | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`@sdlc-tools/core`](./packages/core#readme) | The foundation the tools are built on: keychain credentials, OAuth 2.0 PKCE sign-in, error and exit-code model, HTTP client, argument parsing and the output contract. |
+| [`@sdlc-tools/jira`](./packages/jira#readme) | A Jira Cloud client (`sdlc-jira`): search, view, create, edit, transition, assign and comment on issues and log work, with an API token in the keychain.               |
 
 Each tool is its own package under `packages/`, versioned independently, and depends only on `@sdlc-tools/core`.
 
