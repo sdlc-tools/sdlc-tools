@@ -100,8 +100,8 @@ describe('issue transition', () => {
   it('fails locally without the target', async () => {
     const run = await jira(['issue', 'transition', 'ABC-1']);
     expect(run.code).toBe(2);
-    expect(run.stderr).toContain('Missing required argument <target>');
-    expect(run.stderr).toContain('sdlc-jira issue transition <key> <target>');
+    expect(run.stderr).toContain('pass <target> or --to <status>');
+    expect(run.stderr).toContain('--to Done');
     expect(run.fetchCalls).toHaveLength(0);
   });
 });

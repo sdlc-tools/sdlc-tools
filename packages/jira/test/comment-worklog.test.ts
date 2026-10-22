@@ -117,6 +117,26 @@ describe('issue worklog add', () => {
     expect(JSON.stringify(sent.comment)).toContain('"code"');
   });
 
+  it.each([
+    ['a positive offset', '2026-03-02T09:00:00+09:00', '2026-03-02T09:00:00.000+0900'],
+    ['a negative offset', '2026-03-02T09:00:00-03:30', '2026-03-02T09:00:00.000-0330'],
+    ['an offset without a colon', '2026-03-02T09:00:00+0530', '2026-03-02T09:00:00.000+0530'],
+    ['UTC written as Z', '2026-03-02T00:15Z', '2026-03-02T00:15:00.000+0000'],
+    ['fractional seconds', '2026-03-02T09:00:00.5+09:00', '2026-03-02T09:00:00.500+0900'],
+  ])(
+    'sends the start with %s unchanged in wall-clock time and offset',
+    async (_name, given, sent) => {
+      const fetch = fakeJira({ 'POST /rest/api/3/issue/ABC-1/worklog': () => created('902') });
+      const run = await jira(
+        ['issue', 'worklog', 'add', 'ABC-1', '1h', '--started', given, '--json'],
+        { fetch },
+      );
+      expect(run.code).toBe(0);
+      expect(body(fetch.calls[0]).started).toBe(sent);
+      expect(run.json()).toMatchObject({ started: sent });
+    },
+  );
+
   it('leaves the start to the server when omitted', async () => {
     const fetch = fakeJira({ 'POST /rest/api/3/issue/ABC-1/worklog': () => created('901') });
     const run = await jira(['issue', 'worklog', 'add', 'ABC-1', '30m', '--json'], { fetch });
@@ -177,8 +197,8 @@ describe('issue worklog list', () => {
     });
     expect(run.stdout).toBe(
       [
-        '2026-03-02 09:00  1h   Ada  design',
-        '2026-03-03 10:30  30m  Bob',
+        '2026-03-02 09:00+09:00  1h   Ada  design',
+        '2026-03-03 10:30+09:00  30m  Bob',
         '',
         '2 of 2 worklogs, 1.5h logged in these',
         '',
