@@ -1,7 +1,9 @@
 import { CliError, type CommandContext } from '@sdlc-tools/core';
 import { markdownToAdf } from './adf/markdown.js';
+import { adfToText } from './adf/text.js';
 import type { JiraClient, JiraFieldDefinition } from './client.js';
-import { loadFieldAliases } from './connection.js';
+import { loadJiraConfig, type FieldAlias, type FieldType } from './connection.js';
+import { parseDate, parseDateTime } from './input.js';
 
 export interface FieldEntry {
   readonly name: string;
@@ -49,35 +51,52 @@ function describeField(field: JiraFieldDefinition): string {
   return `${field.name} (${field.id})`;
 }
 
-function coerce(field: JiraFieldDefinition, value: string): unknown {
-  const type = field.schema?.type;
-  if (field.schema?.custom?.endsWith(':textarea') === true) return markdownToAdf(value);
-  switch (type) {
+/** The value type a site's field definition holds, when `--field` can build it. */
+function typeOfDefinition(field: JiraFieldDefinition): FieldType | undefined {
+  if (field.schema?.custom?.endsWith(':textarea') === true) return 'richtext';
+  switch (field.schema?.type) {
     case 'string':
+    case 'number':
     case 'date':
     case 'datetime':
+      return field.schema.type;
+    case 'array':
+      return field.schema.items === 'string' ? 'list' : undefined;
+    default:
+      return undefined;
+  }
+}
+
+function buildValue(label: string, type: FieldType, value: string): unknown {
+  switch (type) {
+    case 'richtext':
+      return markdownToAdf(value);
+    case 'string':
       return value;
+    case 'date':
+      return parseDate(value, label);
+    case 'datetime':
+      return parseDateTime(value, label, 'invalid_datetime');
     case 'number': {
       const parsed = Number(value);
       if (value.trim() === '' || !Number.isFinite(parsed)) {
-        throw new CliError('usage', `${field.name} expects a number, not "${value}".`, {
+        throw new CliError('usage', `${label} expects a number, not "${value}".`, {
           code: 'invalid_field_value',
         });
       }
       return parsed;
     }
-    case 'array':
-      if (field.schema?.items === 'string') {
-        return value
-          .split(',')
-          .map((item) => item.trim())
-          .filter((item) => item !== '');
-      }
-      break;
-    default:
-      break;
+    case 'list':
+      return value
+        .split(',')
+        .map((item) => item.trim())
+        .filter((item) => item !== '');
   }
-  throw new CliError(
+}
+
+function unsupported(field: JiraFieldDefinition): CliError {
+  const type = field.schema?.type;
+  return new CliError(
     'usage',
     `${describeField(field)} holds ${type ?? 'a structured value'}, which --field cannot build.`,
     {
@@ -91,7 +110,8 @@ function coerce(field: JiraFieldDefinition, value: string): unknown {
  * Turns `--field` / `--field-json` entries into the `fields` object of a create
  * or edit request. A name resolves through the configured aliases, then as a
  * field id, then by display name from the site's own field list, so no id is
- * ever built into the tool. The field list is fetched only when needed.
+ * ever built into the tool. The field list is fetched only when needed: an
+ * alias that declares its type, or a JSON value, is built without it.
  */
 export async function resolveFieldEntries(
   context: CommandContext,
@@ -99,22 +119,24 @@ export async function resolveFieldEntries(
   entries: readonly FieldEntry[],
 ): Promise<Record<string, unknown>> {
   if (entries.length === 0) return {};
-  const aliases = await loadFieldAliases(context);
+  const { fields: aliases } = await loadJiraConfig(context);
   const resolved = entries.map((entry) => ({
     entry,
-    id: aliases.get(entry.name.toLowerCase()),
+    alias: aliases.get(entry.name.toLowerCase()),
   }));
 
-  const needsList = resolved.some(
-    ({ entry, id }) => !entry.json || (id === undefined && !CUSTOM_FIELD_ID.test(entry.name)),
+  const needsList = resolved.some(({ entry, alias }) =>
+    entry.json
+      ? alias === undefined && !CUSTOM_FIELD_ID.test(entry.name)
+      : alias?.type === undefined,
   );
   const definitions = needsList ? await client.listFields() : [];
 
   const result: Record<string, unknown> = {};
-  for (const { entry, id: aliased } of resolved) {
-    const wanted = aliased ?? entry.name;
+  for (const { entry, alias } of resolved) {
+    const wanted = alias?.id ?? entry.name;
     let definition = definitions.find((field) => field.id === wanted);
-    if (definition === undefined && aliased === undefined) {
+    if (definition === undefined && alias === undefined) {
       const matches = definitions.filter(
         (field) => field.name.toLowerCase() === entry.name.toLowerCase(),
       );
@@ -131,12 +153,14 @@ export async function resolveFieldEntries(
     }
 
     const id =
-      definition?.id ??
-      (CUSTOM_FIELD_ID.test(wanted) || aliased !== undefined ? wanted : undefined);
+      definition?.id ?? (CUSTOM_FIELD_ID.test(wanted) || alias !== undefined ? wanted : undefined);
     if (id === undefined) {
       throw new CliError('not-found', `This site has no field named "${entry.name}".`, {
         code: 'unknown_field',
-        next: ['List the fields with `sdlc-jira field list --search <text>`.'],
+        next: [
+          'List the fields with `sdlc-jira field list --search <text>`.',
+          'Add the field under "jira.fields" in the configuration to use a short alias.',
+        ],
       });
     }
     if (id in result) {
@@ -146,14 +170,53 @@ export async function resolveFieldEntries(
     }
     if (entry.json) {
       result[id] = JSON.parse(entry.value) as unknown;
+      continue;
+    }
+    const type =
+      alias?.type ?? (definition === undefined ? undefined : typeOfDefinition(definition));
+    if (type !== undefined) {
+      result[id] = buildValue(entry.name, type, entry.value);
     } else if (definition === undefined) {
       throw new CliError('not-found', `This site has no field with the id "${id}".`, {
         code: 'unknown_field',
         next: ['List the fields with `sdlc-jira field list`.'],
       });
     } else {
-      result[id] = coerce(definition, entry.value);
+      throw unsupported(definition);
     }
   }
   return result;
+}
+
+export interface AliasedValue {
+  readonly alias: string;
+  readonly id: string;
+  readonly value: unknown;
+  readonly text: string;
+}
+
+function valueText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) return value.map(valueText).join(', ');
+  if (typeof value === 'object' && value !== null) {
+    const record = value as Record<string, unknown>;
+    if (record.type === 'doc') return adfToText(value);
+    for (const key of ['displayName', 'name', 'value', 'key']) {
+      if (typeof record[key] === 'string') return record[key];
+    }
+    return JSON.stringify(value);
+  }
+  return '';
+}
+
+/** The configured alias fields of an issue, in the order the configuration lists them; absent values are `null`. */
+export function readAliasedFields(
+  aliases: ReadonlyMap<string, FieldAlias>,
+  fields: Readonly<Record<string, unknown>>,
+): AliasedValue[] {
+  return [...aliases.values()].map(({ alias, id }) => {
+    const value = fields[id] ?? null;
+    return { alias, id, value, text: value === null ? '' : valueText(value) };
+  });
 }

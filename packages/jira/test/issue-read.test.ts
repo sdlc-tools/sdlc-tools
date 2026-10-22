@@ -32,7 +32,7 @@ describe('issue view', () => {
     const run = await jira(['issue', 'view', 'ABC-1', '--json'], {
       fetch: fakeJira({ 'GET /rest/api/3/issue/ABC-1': ISSUE }),
     });
-    expect(run.json()).toEqual({ ...ISSUE, url: `${SITE}/browse/ABC-1` });
+    expect(run.json()).toEqual({ ...ISSUE, url: `${SITE}/browse/ABC-1`, aliases: {} });
   });
 
   it('shows only the latest comments', async () => {
