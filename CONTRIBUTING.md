@@ -104,5 +104,7 @@ npm expires a trusted publisher configuration that has not completed a publish w
    }
    ```
 
+   Repeat the same `exports` in `publishConfig.exports` without the `@sdlc-tools/source` line. Packing replaces `exports` with it, so the published manifest never points at `src`, which the tarball does not contain.
+
 3. Build the executable on `defineCli` and `runMain` from `@sdlc-tools/core`, name it `sdlc-<tool>` in `bin`, and test it with `@sdlc-tools/core/testing`.
 4. Add a README that describes the tool as a general-purpose CLI.

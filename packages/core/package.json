@@ -40,7 +40,18 @@
     "README.ko.md"
   ],
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./testing": {
+        "types": "./dist/testing/index.d.ts",
+        "default": "./dist/testing/index.js"
+      },
+      "./package.json": "./package.json"
+    }
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
