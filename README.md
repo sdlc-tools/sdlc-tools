@@ -27,9 +27,10 @@ The full specification is in [`packages/core`](./packages/core#readme).
 
 ## Packages
 
-| Package                                      | Purpose                                                                                                                                                                |
-| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`@sdlc-tools/core`](./packages/core#readme) | The foundation the tools are built on: keychain credentials, OAuth 2.0 PKCE sign-in, error and exit-code model, HTTP client, argument parsing and the output contract. |
+| Package                                            | Purpose                                                                                                                                                                |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`@sdlc-tools/core`](./packages/core#readme)       | The foundation the tools are built on: keychain credentials, OAuth 2.0 PKCE sign-in, error and exit-code model, HTTP client, argument parsing and the output contract. |
+| [`@sdlc-tools/forgejo`](./packages/forgejo#readme) | `sdlc-forgejo`: pull requests on Forgejo and Gitea. Sign in with OAuth or a token, open and review pull requests, merge with a merge commit, clean up branches.        |
 
 Each tool is its own package under `packages/`, versioned independently, and depends only on `@sdlc-tools/core`.
 
