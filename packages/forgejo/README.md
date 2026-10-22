@@ -80,21 +80,64 @@ Each setting is resolved in this order: flag, environment variable, project file
 }
 ```
 
-| Key                  | Flag              | Environment variable                | Meaning                                                               |
-| -------------------- | ----------------- | ----------------------------------- | --------------------------------------------------------------------- |
-| `host`               | `--host`          | `SDLC_FORGEJO_HOST`                 | Server address. Required; https only (plain http for `localhost`).    |
-| `repo`               | `--repo`          | `SDLC_FORGEJO_REPO`                 | `owner/name`. Defaults to the `origin` remote when it is on `host`.   |
-| `profile`            | `--profile`       | `SDLC_FORGEJO_PROFILE`              | Credential profile.                                                   |
-| `clientId`           | `--client-id`     | `SDLC_FORGEJO_CLIENT_ID`            | OAuth application for `auth login`.                                   |
-| `callbackPort`       | `--callback-port` | `SDLC_FORGEJO_CALLBACK_PORT`        | Fixed port for the sign-in callback.                                  |
-| `scopes`             | `--scopes`        | `SDLC_FORGEJO_SCOPES`               | OAuth scopes, separated by commas or spaces.                          |
-| `base`               | `--base`          | `SDLC_FORGEJO_BASE`                 | Default target branch; the repository default branch otherwise.       |
-| `reviewers`          |                   | `SDLC_FORGEJO_REVIEWERS`            | Default reviewers for `pr create`, comma separated.                   |
-| `labels`             |                   | `SDLC_FORGEJO_LABELS`               | Default labels for `pr create`, comma separated.                      |
-| `prTitlePattern`     |                   | `SDLC_FORGEJO_PR_TITLE_PATTERN`     | Regular expression every pull request title must match.               |
-| `prRequiredSections` |                   | `SDLC_FORGEJO_PR_REQUIRED_SECTIONS` | Section names the description must contain as headings or bold lines. |
+| Key                      | Flag              | Environment variable                    | Meaning                                                                         |
+| ------------------------ | ----------------- | --------------------------------------- | ------------------------------------------------------------------------------- |
+| `host`                   | `--host`          | `SDLC_FORGEJO_HOST`                     | Server address. Required; https only (plain http for `localhost`).              |
+| `repo`                   | `--repo`          | `SDLC_FORGEJO_REPO`                     | `owner/name`. Defaults to the `origin` remote when it is on `host`.             |
+| `profile`                | `--profile`       | `SDLC_FORGEJO_PROFILE`                  | Credential profile.                                                             |
+| `clientId`               | `--client-id`     | `SDLC_FORGEJO_CLIENT_ID`                | OAuth application for `auth login`.                                             |
+| `callbackPort`           | `--callback-port` | `SDLC_FORGEJO_CALLBACK_PORT`            | Fixed port for the sign-in callback.                                            |
+| `scopes`                 | `--scopes`        | `SDLC_FORGEJO_SCOPES`                   | OAuth scopes, separated by commas or spaces.                                    |
+| `base`                   | `--base`          | `SDLC_FORGEJO_BASE`                     | Default target branch; the repository default branch otherwise.                 |
+| `reviewers`              |                   | `SDLC_FORGEJO_REVIEWERS`                | Default reviewers for `pr create`, comma separated; `--reviewer` adds to them.  |
+| `labels`                 |                   | `SDLC_FORGEJO_LABELS`                   | Default labels for `pr create`, comma separated.                                |
+| `prTitlePattern`         |                   | `SDLC_FORGEJO_PR_TITLE_PATTERN`         | Regular expression every pull request title must match.                         |
+| `prRequiredSections`     |                   | `SDLC_FORGEJO_PR_REQUIRED_SECTIONS`     | Section names the description must contain, each with content under it.         |
+| `mergeRequiredStatuses`  |                   | `SDLC_FORGEJO_MERGE_REQUIRED_STATUSES`  | Status contexts that must be `success` on the head commit before `pr merge`.    |
+| `mergeRequiredApprovals` |                   | `SDLC_FORGEJO_MERGE_REQUIRED_APPROVALS` | Approvals the head commit needs. 1 when `mergeApprovers` is set.                |
+| `mergeApprovers`         |                   | `SDLC_FORGEJO_MERGE_APPROVERS`          | Users whose approvals count: names or patterns with `*`. Anyone when unset.     |
+| `mergeMethods`           |                   | `SDLC_FORGEJO_MERGE_METHODS`            | Merge methods `pr merge` may use; the first is the default. `merge` when unset. |
 
 The server, the account and the OAuth application decide where credentials go, so they are never read from the project file: a repository you did not write cannot choose them. The repository read from a remote is accepted only when the remote lives on the configured server, for the same reason.
+
+## Merge policy
+
+A team's rules for merging live in the configuration, and `pr merge` enforces them instead of leaving them to whoever runs the command. The policy settings have no flags, so the command line cannot switch them off.
+
+```json
+{
+  "forgejo": {
+    "reviewers": "alice,bob,carol",
+    "prTitlePattern": "^(feat|fix|docs|chore): .+ \\[[A-Z]+-\\d+\\]$",
+    "prRequiredSections": "Summary, Testing, Breaking change",
+    "mergeRequiredStatuses": "review-bot/review, ci/build",
+    "mergeRequiredApprovals": "2",
+    "mergeApprovers": "alice, bob, carol",
+    "mergeMethods": "merge"
+  }
+}
+```
+
+Everything is judged on the pull request's **current head commit**; nothing recorded for an older commit counts.
+
+- **Statuses.** Each context in `mergeRequiredStatuses` must have `success` as its latest result on the head. Missing, `pending`, `failure`, `error` and `warning` all refuse the merge; a rerun replaces the earlier result of the same context. A comma inside parentheses or brackets belongs to the name, so `build (node 22, linux)` is one context. If the account may not read the statuses, the command stops with the permission error instead of guessing.
+- **Approvals.** An approval counts when it is the reviewer's latest decisive review, is not dismissed, is not marked stale and was written on the head commit. A later request for changes replaces an earlier approval; comments change nothing. Entries of `mergeApprovers` are user names or patterns in which `*` stands for any run of characters, matched against the whole login without regard to case, for example `alice, team-*`. Setting `mergeApprovers` alone requires one approval. A request for changes by someone else that is still open is reported as a warning.
+- **Merge methods.** `merge` is the default and the only method unless `mergeMethods` lists more: `merge`, `rebase`, `rebase-merge`, `squash`, `fast-forward-only`. See [Merging](#merging).
+
+When anything is unmet, nothing is sent: the command exits with 6 and `merge_blocked`, lists every missing item, and `error.details.unmet` holds them one by one for programs:
+
+```json
+{ "kind": "status", "context": "review-bot/review", "state": "pending", "url": null }
+{
+  "kind": "approval",
+  "required": 2,
+  "approvedBy": ["alice"],
+  "waitingFor": ["bob", "carol"],
+  "notCounted": [{ "reviewer": "bob", "reason": "approved 03aae758, not the current head" }]
+}
+```
+
+`state` is `missing` when nothing was reported for the head. A setting that can never be met, such as 3 approvals from 2 named users, fails with exit 2 before the first request.
 
 ## Commands
 
@@ -108,7 +151,7 @@ Options go after the command name. `sdlc-forgejo <command> --help` shows every o
 | `pr create`               | Opens a pull request. See below.                                                  |
 | `pr reviewers <number>`   | Requests (`--add`) or withdraws (`--remove`) review requests.                     |
 | `pr labels <number>`      | Attaches (`--add`) or removes (`--remove`) labels, by name.                       |
-| `pr merge <number>`       | Merges with a merge commit. See below.                                            |
+| `pr merge <number>`       | Merges once the configured policy holds. See below.                               |
 | `branch cleanup <branch>` | Deletes a merged branch locally and on the server. See below.                     |
 
 ### Opening a pull request
@@ -117,7 +160,7 @@ Options go after the command name. `sdlc-forgejo <command> --help` shows every o
 
 Before anything is sent:
 
-- the title and the description must be non-empty, and the title a single line of at most 255 characters; `prTitlePattern` and `prRequiredSections` add the rules of your project;
+- the title and the description must be non-empty, and the title a single line of at most 255 characters; `prTitlePattern` and `prRequiredSections` add the rules of your project: a title such as `<type>: <subject> [KEY]` is enforced with one pattern, and every required section must appear as a heading or a bold label (`**Name**`, `**Name:** value`, `**Name**: value`) with something under it. Blank lines and HTML comments do not count as content, and a line starting with `#` inside a code fence is not a heading;
 - the head branch is the checked-out branch unless `--head` says otherwise, and the base defaults to the repository's default branch.
 
 Then the server and git are asked, and the pull request is refused when
@@ -126,17 +169,19 @@ Then the server and git are asked, and the pull request is refused when
 - a pull request for that branch is already open, whatever its base. Closed or merged ones only produce a warning, because their discussion is worth reading first;
 - the base branch does not exist.
 
+The configured `reviewers` and every `--reviewer` are requested together, each user once. The author is left out of the configured list, because Forgejo refuses a review request for the author as a whole and would leave the others unrequested; a reviewer named with `--reviewer` is sent as given.
+
 Labels are resolved by name before the pull request is created, so a misspelled label cannot leave a half-finished pull request behind. A failure while requesting reviewers or attaching labels afterwards keeps the pull request, exits with 6, and names the pull request and the command that finishes the job. `--draft` prefixes the title with `WIP:`, which is how Forgejo marks a draft.
 
 ### Merging
 
-`pr merge <number> [--match-head-commit <sha>] [--expect-base <branch>] [--keep-branch]`
+`pr merge <number> [--method <method>] [--match-head-commit <sha>] [--expect-base <branch>] [--keep-branch]`
 
-Merging always creates a merge commit. Squash and rebase are not offered: they leave the same change under different hashes and turn later rebases into conflict resolution.
+Merging creates a merge commit unless the configuration allows other methods. Squash and rebase leave the same change under different hashes and turn later rebases into conflict resolution, so they are opt-in: `mergeMethods` lists the methods a team permits, the first is used when `--method` is not given, and a request for any other method is refused before anything is sent (exit 2, `merge_method_not_allowed`). With a method other than `merge` the server writes the commit message.
 
-The merge is refused, before any merge request is sent, when the pull request is closed, already merged, a draft, reported unmergeable by the server, targets another branch than `--expect-base`, or its head is not `--match-head-commit`. The commit that was checked is sent along with the merge, so the server refuses to merge a head that moved in the meantime. Failed or running CI checks are reported as warnings; whether they block is a branch protection decision on the server.
+The merge is refused, before any merge request is sent, when the pull request is closed, already merged, a draft, reported unmergeable by the server, targets another branch than `--expect-base`, has a head other than `--match-head-commit`, or does not satisfy the [merge policy](#merge-policy). Every reason is listed at once. Failed or running CI checks that the policy does not require are reported as warnings; whether they block is a branch protection decision on the server.
 
-Afterwards the pull request is read again, and the merge is reported only if the server shows it merged. The branch is deleted on the server unless `--keep-branch` is given; if the server keeps it (for example because it is protected) that is reported as a warning.
+Statuses and approvals are read for the head commit seen at the start, and that same commit is sent along with the merge, so the server refuses to merge a head that moved in the meantime. Afterwards the pull request is read again, and the merge is reported only if the server shows it merged. The branch is deleted on the server unless `--keep-branch` is given; if the server keeps it (for example because it is protected) that is reported as a warning.
 
 ### Cleaning up branches
 
@@ -148,16 +193,17 @@ Deletes the local branch, the server branch and, with `--worktree`, a linked wor
 
 The exit codes are the ones defined by [`@sdlc-tools/core`](../core#exit-codes): `0` success, `2` usage or configuration, `3` authentication, `4` permission, `5` not found, `6` the server rejected the request, `7` the server could not be reached. This tool uses `6` with a stable `code` for the preconditions it checks itself:
 
-| `code`                    | Meaning                                                                     |
-| ------------------------- | --------------------------------------------------------------------------- |
-| `create_blocked`          | A pull request cannot be opened for the branch yet; the reasons are listed. |
-| `merge_blocked`           | The pull request is not mergeable; the reasons are listed.                  |
-| `merge_rejected`          | The server refused the merge (protection rules, a head that moved).         |
-| `pull_request_incomplete` | The pull request was opened, but reviewers or labels could not be applied.  |
-| `cleanup_blocked`         | The branch is not provably merged, or must never be deleted.                |
+| `code`                     | Meaning                                                                                                      |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `create_blocked`           | A pull request cannot be opened for the branch yet; the reasons are listed.                                  |
+| `merge_blocked`            | The pull request is not mergeable or the merge policy is not met; the reasons are listed.                    |
+| `merge_rejected`           | The server refused the merge (protection rules, a head that moved, a method the repository has not enabled). |
+| `merge_method_not_allowed` | `--method` names a method that `mergeMethods` does not allow (exit 2).                                       |
+| `pull_request_incomplete`  | The pull request was opened, but reviewers or labels could not be applied.                                   |
+| `cleanup_blocked`          | The branch is not provably merged, or must never be deleted.                                                 |
 
-With `--json` the reasons are in `error.details.violations`.
+With `--json` the reasons are in `error.details.violations`, and the unmet policy items in `error.details.unmet`.
 
 ## Compatibility
 
-Works with Forgejo and with Gitea servers that offer the same REST API (`/api/v1`) and OAuth2 provider (`/login/oauth/authorize`, `/login/oauth/access_token`). It is verified against Forgejo 15, including signing in with OAuth, requesting reviewers and merging with an OAuth token.
+Works with Forgejo and with Gitea servers that offer the same REST API (`/api/v1`) and OAuth2 provider (`/login/oauth/authorize`, `/login/oauth/access_token`). It is verified against Forgejo 15, including signing in with OAuth, requesting reviewers and merging with an OAuth token, and the merge policy: commit statuses read across pages, approvals that stay valid only for the commit they were written on, and merging by merge commit or squash.
