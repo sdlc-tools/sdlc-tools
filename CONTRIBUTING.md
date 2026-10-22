@@ -58,6 +58,39 @@ pnpm changeset
 
 Choose the packages and the bump, and describe the change for the people who will read the changelog.
 
+### How a release happens
+
+`publish.yml` runs on every push to `main`:
+
+1. While changesets are pending, it opens or updates the **Version Packages** pull request, which bumps versions, rewrites the changelogs and consumes the changesets.
+2. Merging that pull request publishes every bumped package. The `pack` job builds and packs the tarballs (`workspace:*` becomes the real version), and the `publish` job uploads them to npm through [trusted publishing](https://docs.npmjs.com/trusted-publishers): an OIDC token from GitHub, provenance attached, no npm token stored. Only the `publish` job has `id-token: write`. It also pushes the git tags and creates the GitHub releases.
+
+Release runs share one concurrency group and never overlap. The repository setting **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests** must be on. A pull request opened with the workflow token does not start the `CI` workflow; close and reopen it, or push to its branch, to run the checks.
+
+### One-time bootstrap
+
+npm configures a trusted publisher on a package that already exists, so each package's first version is pushed with a token:
+
+1. Create a granular npm access token with read and write access to the `@sdlc-tools` packages and save it as the repository secret `NPM_TOKEN`.
+2. Run **Publish Init** from `main` (Actions → Publish Init → Run workflow).
+3. Add the trusted publisher to each of `@sdlc-tools/core`, `@sdlc-tools/forgejo` and `@sdlc-tools/jira` on npmjs.com (package → Settings → Trusted publishing → GitHub Actions):
+
+   | Field             | Value                          |
+   | ----------------- | ------------------------------ |
+   | Organization      | `sdlc-tools`                   |
+   | Repository        | `sdlc-tools`                   |
+   | Workflow filename | `publish.yml`                  |
+   | Environment       | empty                          |
+   | Allowed actions   | direct publish (`npm publish`) |
+
+4. Delete the `NPM_TOKEN` secret and revoke the token. Nothing after this step needs it.
+
+Publish Init runs `changeset version` in the runner only, appends `-beta.0` to each planned version (for example `0.1.0-beta.0`) and publishes under the `beta` dist-tag. A prerelease sorts below its stable version, so `0.1.0` remains for the first regular release, which goes through OIDC. A package that is already on the registry at that version is skipped, so the workflow can be run again after a partial failure.
+
+`npm publish --tag beta` does not move `latest` ([npm-dist-tag](https://docs.npmjs.com/cli/v11/commands/npm-dist-tag)); the registry's handling of `latest` on a package's very first version is not documented, so check `npm dist-tag ls @sdlc-tools/core` after the bootstrap. The first regular release sets `latest` to the stable version either way.
+
+npm expires a trusted publisher configuration that has not completed a publish within two days of saving it, so merge the Version Packages pull request soon after step 3.
+
 ## Adding a tool package
 
 1. Create `packages/<tool>` named `@sdlc-tools/<tool>`, with `@sdlc-tools/core` as a dependency and the same `tsconfig.json`, `tsconfig.build.json` and `vitest.config.ts` layout as `packages/core`.
