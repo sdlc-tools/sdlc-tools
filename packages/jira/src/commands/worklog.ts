@@ -7,6 +7,15 @@ import { table } from '../render.js';
 
 const keyArg = { name: 'key', description: 'Issue key, such as ABC-123', required: true } as const;
 
+/** `2026-03-02T09:00:00.000+0900` as `2026-03-02 09:00+09:00`, so the offset the work was logged with stays visible. */
+function showStarted(started: string | undefined): string {
+  if (started === undefined) return '';
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})\S*?([+-]\d{2}):?(\d{2})$/.exec(started);
+  return match === null
+    ? started.slice(0, 16).replace('T', ' ')
+    : `${match[1]} ${match[2]}${match[3]}:${match[4]}`;
+}
+
 const add = defineCommand({
   name: 'add',
   summary: 'Log time spent on an issue',
@@ -19,7 +28,8 @@ const add = defineCommand({
     started: {
       type: 'string',
       valueName: 'time',
-      description: 'When the work started, ISO 8601 with an offset (default: now)',
+      description:
+        'When the work started, ISO 8601 with a UTC offset such as +09:00 or Z (default: now)',
     },
     comment: {
       type: 'string',
@@ -71,7 +81,7 @@ const list = defineCommand({
     const seconds = worklogs.reduce((sum, worklog) => sum + (worklog.timeSpentSeconds ?? 0), 0);
     const hours = Math.round((seconds / 3600) * 100) / 100;
     const rows = worklogs.map((worklog) => [
-      worklog.started?.slice(0, 16).replace('T', ' ') ?? '',
+      showStarted(worklog.started),
       worklog.timeSpent ?? '',
       worklog.author?.displayName ?? 'Unknown',
       adfToText(worklog.comment).replace(/\n+/g, ' '),

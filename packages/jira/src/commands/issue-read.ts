@@ -1,5 +1,12 @@
 import { CliError, defineCommand } from '@sdlc-tools/core';
-import { connect, connectionOptions, resolveProject } from '../connection.js';
+import {
+  connect,
+  connectionOptions,
+  loadJiraConfig,
+  resolveProject,
+  type FieldAlias,
+} from '../connection.js';
+import { readAliasedFields } from '../fields.js';
 import { parseIssueKey } from '../input.js';
 import { renderIssue, renderIssueRows } from '../render.js';
 import { resolveAssignee } from '../users.js';
@@ -18,7 +25,7 @@ export const view = defineCommand({
   name: 'view',
   summary: 'Show an issue',
   description:
-    'Prints the key, summary, status, people, description and the latest comments. --json prints the issue as the API returns it, with every field, plus its browse url.',
+    'Prints the key, summary, status, people, linked issues, the fields configured under "jira.fields", the description and the latest comments. --json prints the issue as the API returns it, with every field, plus its browse url and the configured fields under "aliases".',
   positionals: [{ name: 'key', description: 'Issue key, such as ABC-123', required: true }],
   options: {
     ...connectionOptions,
@@ -33,10 +40,19 @@ export const view = defineCommand({
   async run({ args, options }, context) {
     const key = parseIssueKey(args.key);
     const commentLimit = parseCount(options.comments, '--comments', 100);
+    const { fields: aliases } = await loadJiraConfig(context);
     const { client } = await connect(context, options);
     const issue = await client.getIssue(key, ['*all']);
     const url = client.browseUrl(issue.key);
-    return { data: { ...issue, url }, text: renderIssue(issue, url, commentLimit) };
+    const aliased = readAliasedFields(aliases, issue.fields);
+    return {
+      data: {
+        ...issue,
+        url,
+        aliases: Object.fromEntries(aliased.map(({ alias, value }) => [alias, value])),
+      },
+      text: renderIssue(issue, url, commentLimit, aliased),
+    };
   },
 });
 
@@ -93,7 +109,7 @@ export const list = defineCommand({
     fields: {
       type: 'string',
       valueName: 'list',
-      description: 'Comma-separated extra field ids to include in the result',
+      description: 'Comma-separated extra field ids or configured aliases to include in the result',
     },
   },
   examples: [
@@ -121,10 +137,15 @@ export const list = defineCommand({
     if (options.jql?.trim() === '') {
       throw new CliError('usage', '--jql must not be empty.', { code: 'empty_text' });
     }
-    const extra = (options.fields ?? '')
+    const requested = (options.fields ?? '')
       .split(',')
       .map((field) => field.trim())
       .filter((field) => field !== '');
+    const aliases =
+      requested.length === 0
+        ? new Map<string, FieldAlias>()
+        : (await loadJiraConfig(context)).fields;
+    const extra = requested.map((field) => aliases.get(field.toLowerCase())?.id ?? field);
 
     const { client } = await connect(context, options);
 

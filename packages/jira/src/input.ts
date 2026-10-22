@@ -89,16 +89,16 @@ export function parseDuration(value: string, label: string): string {
   return trimmed.replace(/\s+/g, ' ').toLowerCase();
 }
 
-const STARTED =
+const DATE_TIME =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(Z|[+-]\d{2}:?\d{2})$/;
 
 /**
- * Converts an ISO 8601 timestamp with an explicit offset to the form the worklog
- * endpoint requires (`2026-01-02T09:00:00.000+0900`). An offset is required so
- * the result never depends on the machine's time zone.
+ * Converts an ISO 8601 timestamp with an explicit offset to the form Jira
+ * requires (`2026-01-02T09:00:00.000+0900`). An offset is required so the
+ * result never depends on the machine's time zone.
  */
-export function parseStarted(value: string): string {
-  const match = STARTED.exec(value.trim());
+export function parseDateTime(value: string, label: string, code: string): string {
+  const match = DATE_TIME.exec(value.trim());
   const [year = 0, month = 0, day = 0, hour = 99, minute = 99] =
     match?.slice(1, 6).map(Number) ?? [];
   const [offsetHour = 0, offsetMinute = 0] =
@@ -117,9 +117,9 @@ export function parseStarted(value: string): string {
   if (!valid) {
     throw new CliError(
       'usage',
-      `--started must be an ISO 8601 time with an offset, not "${value}".`,
+      `${label} must be an ISO 8601 time with an offset, not "${value}".`,
       {
-        code: 'invalid_started',
+        code,
         next: ['Write it like 2026-01-02T09:00:00+09:00, or end it with Z for UTC.'],
       },
     );
@@ -128,4 +128,8 @@ export function parseStarted(value: string): string {
   const date = value.trim().slice(0, 10);
   const time = `${match[4]}:${match[5]}:${match[6] ?? '00'}.${(match[7] ?? '').padEnd(3, '0')}`;
   return `${date}T${time}${offset}`;
+}
+
+export function parseStarted(value: string): string {
+  return parseDateTime(value, '--started', 'invalid_started');
 }
