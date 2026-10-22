@@ -6,6 +6,7 @@
   "linked": [],
   "access": "public",
   "baseBranch": "main",
+  "snapshot": { "useCalculatedVersion": true },
   "updateInternalDependencies": "patch",
   "ignore": []
 }
