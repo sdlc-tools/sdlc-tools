@@ -234,7 +234,7 @@ Endpoints, client id, scopes and the callback port are always parameters.
 | `MemoryFiles`                                    | An in-memory file reader for configuration files; starts empty, so no test depends on the disk.                                     |
 | `FakeAuthorizationServer`                        | An OAuth server that enforces PKCE verification, single-use codes and refresh-token rotation, and a browser that approves sign-ins. |
 
-By default `execute` uses `forbidFetch`, so a test must say when it expects network traffic, and an empty `MemoryFiles`, so configuration files exist only when a test adds them. Library code reads files through `runtime.files` rather than `node:fs`, which keeps in-process tests independent of disk and scheduler latency.
+By default `execute` uses `forbidFetch`, so a test must say when it expects network traffic, and an empty `MemoryFiles`, so configuration files exist only when a test adds them. Command code reads the files a user points it at, and configuration files, through `runtime.files` rather than `node:fs`, which keeps in-process tests independent of disk and scheduler latency. A package reading its own manifest once at load time is the exception.
 
 ## Security notes
 

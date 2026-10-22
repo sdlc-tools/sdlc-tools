@@ -1,8 +1,5 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { MemoryFiles } from '@sdlc-tools/core/testing';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { ENV, SITE, body, fakeJira, jira } from './helpers.js';
 
 const FIELDS = [
@@ -24,14 +21,6 @@ const FIELDS = [
   { id: 'customfield_20005', name: 'dup', custom: true, schema: { type: 'string' } },
   { id: 'customfield_20006', name: 'Reviewer', custom: true, schema: { type: 'user' } },
 ];
-
-let directory: string;
-beforeEach(async () => {
-  directory = await mkdtemp(join(tmpdir(), 'sdlc-jira-'));
-});
-afterEach(async () => {
-  await rm(directory, { recursive: true, force: true });
-});
 
 describe('issue create', () => {
   const created = { id: '10002', key: 'ABC-2' };
@@ -59,8 +48,7 @@ describe('issue create', () => {
   });
 
   it('builds every option into the request, converting the description to ADF', async () => {
-    const file = join(directory, 'spec.md');
-    await writeFile(file, '## Goal\n\n- ship it');
+    const files = new MemoryFiles().set('/work/spec.md', '## Goal\n\n- ship it');
     const fetch = fakeJira({
       'POST /rest/api/3/issue': created,
       'GET /rest/api/3/user/assignable/search': [
@@ -93,7 +81,7 @@ describe('issue create', () => {
         'ada@example.test',
         '--json',
       ],
-      { fetch, cwd: directory, env: { ...ENV, SDLC_JIRA_PROJECT: 'ABC' } },
+      { fetch, files, env: { ...ENV, SDLC_JIRA_PROJECT: 'ABC' } },
     );
     expect(run.code).toBe(0);
     expect(run.json()).toEqual({ id: '10002', key: 'ABC-2', url: `${SITE}/browse/ABC-2` });
@@ -270,7 +258,7 @@ describe('issue create', () => {
       '--summary must not be empty',
     ],
   ])('fails before any request on %s', async (_name, args, message) => {
-    const run = await jira(['issue', 'create', ...args], { cwd: directory });
+    const run = await jira(['issue', 'create', ...args]);
     expect(run.code).toBe(2);
     expect(run.stderr).toContain(message);
     expect(run.fetchCalls).toHaveLength(0);
