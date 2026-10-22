@@ -36,7 +36,7 @@ const URL_LITERAL = '[/][/][a-z0-9]';
  * Server addresses, project keys and field ids are configuration, never code
  * (see "Configuration" in packages/core/README.md).
  */
-const hardcodedConfigRules = [
+const hardcodedUrlRules = [
   {
     selector: `Literal[value=/^https?:${URL_LITERAL}/]`,
     message: 'Do not hard-code URLs in sources; receive the address through configuration.',
@@ -45,6 +45,9 @@ const hardcodedConfigRules = [
     selector: `TemplateElement[value.raw=/https?:${URL_LITERAL}/]`,
     message: 'Do not hard-code URLs in sources; receive the address through configuration.',
   },
+];
+
+const hardcodedFieldRules = [
   {
     selector: 'Literal[value=/customfield_/]',
     message: 'Do not hard-code field ids in sources; receive them through configuration.',
@@ -100,7 +103,7 @@ export default defineConfig(
           message: 'Return an exit code; the entry point sets process.exitCode so output flushes.',
         },
       ],
-      'no-restricted-syntax': ['error', ...hardcodedConfigRules],
+      'no-restricted-syntax': ['error', ...hardcodedUrlRules, ...hardcodedFieldRules],
     },
   },
   {
@@ -110,7 +113,12 @@ export default defineConfig(
   {
     // RFC 8252 loopback redirect URIs are a protocol constant, not a deployment address.
     files: ['packages/core/src/oauth/login.ts'],
-    rules: { 'no-restricted-syntax': 'off' },
+    rules: { 'no-restricted-syntax': ['error', ...hardcodedFieldRules] },
+  },
+  {
+    // Test doubles use reserved `.test` addresses that resolve nowhere.
+    files: ['packages/*/src/testing/**/*.ts'],
+    rules: { 'no-restricted-syntax': ['error', ...hardcodedFieldRules] },
   },
   {
     files: ['packages/*/test/**/*.ts'],
