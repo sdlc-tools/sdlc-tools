@@ -114,6 +114,14 @@ describe('pr merge refuses before sending the merge request', () => {
     await blocked(lab, [], 'is a draft');
   });
 
+  it('names a draft once, even though the server also calls it unmergeable', async () => {
+    const lab = await open();
+    lab.forgejo.pulls[0]!.title = 'WIP: feat: export';
+    lab.forgejo.pulls[0]!.mergeable = false;
+    const run = await lab.run([...merge, '--json']);
+    expect((run.errorJson().error.details as { violations: string[] }).violations).toHaveLength(1);
+  });
+
   it('a pull request that is already merged or closed', async () => {
     const merged = await open();
     merged.forgejo.pulls[0]!.merged = true;
@@ -144,8 +152,14 @@ describe('pr merge refuses before sending the merge request', () => {
   it('lists every reason at once', async () => {
     const lab = await open();
     lab.forgejo.pulls[0]!.mergeable = false;
-    lab.forgejo.pulls[0]!.title = 'WIP: x';
-    const run = await lab.run([...merge, '--expect-base', 'release', '--json']);
+    const run = await lab.run([
+      ...merge,
+      '--expect-base',
+      'release',
+      '--match-head-commit',
+      'abcdef1',
+      '--json',
+    ]);
     expect((run.errorJson().error.details as { violations: string[] }).violations).toHaveLength(3);
   });
 });

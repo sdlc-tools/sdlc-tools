@@ -30,9 +30,12 @@ describe('pr list', () => {
 
   it('filters by state, head and base', async () => {
     const lab = await labWithPulls();
-    expect((await lab.run(['pr', 'list', ...repo, '--state', 'closed'])).stdout).toContain(
-      '#4  merged',
+    expect((await lab.run(['pr', 'list', ...repo, '--state', 'closed'])).stdout).toBe(
+      '#4  merged  feat/d → main  feat: d  by alice\n',
     );
+    expect(
+      (await lab.run(['pr', 'list', ...repo, '--state', 'all', '--head', 'feat/d'])).stdout,
+    ).toContain('#4');
     expect(
       (await lab.run(['pr', 'list', ...repo, '--state', 'all'])).stdout.trim().split('\n'),
     ).toHaveLength(4);

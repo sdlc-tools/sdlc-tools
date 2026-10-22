@@ -195,7 +195,9 @@ export class FakeForgejo {
       merged: pull.merged,
       mergeable: pull.mergeable,
       head: {
-        ref: pull.head.ref,
+        // A merged pull request whose branch was deleted no longer names it in `ref`.
+        ref: pull.merged ? `refs/pull/${pull.number}/head` : pull.head.ref,
+        label: pull.head.ref,
         sha: pull.head.sha,
         repo: { full_name: pull.headRepo ?? this.slug },
       },

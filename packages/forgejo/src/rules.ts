@@ -160,7 +160,7 @@ export function gateMerge(input: MergeGateInput): Verdict {
   if (pull.draft) {
     violations.push(`#${pull.number} is a draft; mark it ready for review in the web interface.`);
   }
-  if (pull.mergeable === false) {
+  if (pull.mergeable === false && !pull.draft) {
     violations.push(
       `The server reports that #${pull.number} cannot be merged (conflicts or unmet rules).`,
     );

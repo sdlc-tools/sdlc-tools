@@ -11,7 +11,10 @@ interface RawUser {
 }
 
 interface RawRef {
+  /** `refs/pull/<n>/head` once the pull request is merged and its branch is gone. */
   readonly ref?: string;
+  /** The branch name as the author knew it, kept after `ref` stops naming it. */
+  readonly label?: string;
   readonly sha?: string;
   readonly repo?: { readonly full_name?: string } | null;
 }
@@ -49,6 +52,13 @@ interface RawStatus {
   readonly target_url?: string | null;
 }
 
+const PULL_REF = /^refs\/pull\/\d+\/head$/;
+
+function headBranch(head: RawRef | undefined): string {
+  const ref = head?.ref ?? '';
+  return PULL_REF.test(ref) && head?.label !== undefined && head.label !== '' ? head.label : ref;
+}
+
 function toPullRequest(raw: RawPull): PullRequest {
   const title = raw.title ?? '';
   return {
@@ -60,7 +70,7 @@ function toPullRequest(raw: RawPull): PullRequest {
     draft: raw.draft === true || isDraftTitle(title),
     mergeable: raw.mergeable ?? null,
     head: {
-      ref: raw.head?.ref ?? '',
+      ref: headBranch(raw.head),
       sha: raw.head?.sha ?? '',
       repo: raw.head?.repo?.full_name ?? null,
     },
