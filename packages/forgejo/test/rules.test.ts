@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PullRequest } from '../src/model.js';
-import { summarizeStatuses } from '../src/api.js';
+import { summarizeStatuses } from '../src/statuses.js';
 import {
   buildTextRules,
   checkText,
@@ -57,6 +57,99 @@ describe('checkText', () => {
     expect(checkText('t', 'We did Testing here', rules)).toHaveLength(1);
     expect(checkText('t', '## Testing:\nran', rules)).toEqual([]);
     expect(checkText('t', '__Testing__\nran', rules)).toEqual([]);
+  });
+});
+
+describe('title and description rules', () => {
+  const titlePattern = '^(feat|fix|docs|refactor|perf|test|chore): .+ \\[[A-Z][A-Z0-9]*-\\d+\\]$';
+
+  it('enforces a "<type>: <subject> [KEY]" title', () => {
+    const rules = buildTextRules({ prTitlePattern: titlePattern, prRequiredSections: undefined });
+    expect(checkText('feat: add export [PROJ-123]', 'b', rules)).toEqual([]);
+    for (const title of [
+      'feat: add export',
+      'wip: add export [PROJ-123]',
+      'feat: add export [proj-123]',
+      'feat add export [PROJ-123]',
+      '[PROJ-123] feat: add export',
+    ]) {
+      expect(checkText(title, 'b', rules), title).toEqual([
+        expect.stringContaining('does not match the configured pattern'),
+      ]);
+    }
+  });
+
+  const sections = (names: string) =>
+    buildTextRules({ prTitlePattern: undefined, prRequiredSections: names });
+  const problems = (body: string, names: string) => checkText('t', body, sections(names));
+
+  it('accepts headings of any level and bold labels with or without a value on the line', () => {
+    const body = [
+      '### Summary',
+      'x',
+      '**Breaking change**: no',
+      '**Tests:** all pass',
+      '__Docs__',
+      'updated',
+    ].join('\n');
+    expect(problems(body, 'Summary, Breaking change, Tests, Docs')).toEqual([]);
+  });
+
+  it('does not take a bold phrase in a sentence for a section', () => {
+    expect(problems('**Testing** was skipped', 'Testing')).toEqual([
+      'The description lacks the section(s): Testing.',
+    ]);
+  });
+
+  it('matches names ignoring case, emphasis, a trailing colon and repeated spaces', () => {
+    expect(problems('## **Breaking   Change**:\nnone', 'breaking change')).toEqual([]);
+  });
+
+  it('rejects a section with nothing under it, and tells it from a missing one', () => {
+    expect(
+      problems('## Summary\n\n## Testing\nran\n## Docs\n', 'Summary, Testing, Docs, Notes'),
+    ).toEqual([
+      'The description lacks the section(s): Notes.',
+      'The description has nothing under the section(s): Summary, Docs.',
+    ]);
+  });
+
+  it('does not count a template placeholder comment as content, or a heading inside one as a section', () => {
+    expect(problems('## Testing\n<!-- describe how you tested -->\n', 'Testing')).toEqual([
+      'The description has nothing under the section(s): Testing.',
+    ]);
+    expect(problems('<!--\n## Testing\nran\n-->', 'Testing')).toEqual([
+      'The description lacks the section(s): Testing.',
+    ]);
+  });
+
+  it('counts sub-headings and everything up to the next heading of the same or a higher level', () => {
+    expect(problems('## Testing\n### Unit\nran', 'Testing')).toEqual([]);
+    expect(problems('### Testing\n## Docs\nx', 'Testing')).toEqual([
+      'The description has nothing under the section(s): Testing.',
+    ]);
+  });
+
+  it('ends a bold label at the next label of any kind', () => {
+    expect(problems('**Summary**\n**Testing**\nran', 'Summary')).toEqual([
+      'The description has nothing under the section(s): Summary.',
+    ]);
+    expect(problems('**Summary**\n**Testing**\nran', 'Testing')).toEqual([]);
+  });
+
+  it('takes a line starting with # inside a code fence for pasted output, not for a heading', () => {
+    const log = '## Testing\n```sh\n# run it\n$ pnpm test\n```\n';
+    expect(problems(log, 'Testing')).toEqual([]);
+    expect(problems('```\n## Notes\nx\n```', 'Notes')).toEqual([
+      'The description lacks the section(s): Notes.',
+    ]);
+    expect(problems('~~~\n## Notes\n```\n## Notes\n~~~\ntext', 'Notes')).toEqual([
+      'The description lacks the section(s): Notes.',
+    ]);
+  });
+
+  it('reads CRLF line endings', () => {
+    expect(problems('## Testing\r\nran\r\n', 'Testing')).toEqual([]);
   });
 });
 
@@ -120,8 +213,8 @@ describe('gateMerge', () => {
 
   it('turns CI results into warnings only, and a repository without CI into none', () => {
     const ci = summarizeStatuses([
-      { id: 1, context: 'a', status: 'failure' },
-      { id: 2, context: 'b', status: 'warning' },
+      { id: 1, context: 'a', state: 'failure', url: null },
+      { id: 2, context: 'b', state: 'warning', url: null },
     ]);
     const verdict = gateMerge({ pull: pull(), ci });
     expect(verdict.violations).toEqual([]);
@@ -133,18 +226,18 @@ describe('gateMerge', () => {
 describe('summarizeStatuses', () => {
   it('keeps the latest result of each check', () => {
     const ci = summarizeStatuses([
-      { id: 9, context: 'test', status: 'success' },
-      { id: 2, context: 'test', status: 'failure' },
-      { id: 3, context: 'lint', status: 'error', target_url: 'https://ci.example.test/3' },
-      { id: 4, context: 'build', status: 'pending' },
-      { context: 'ignored-without-id', status: 'failure' },
+      { id: 9, context: 'test', state: 'success', url: null },
+      { id: 2, context: 'test', state: 'failure', url: null },
+      { id: 3, context: 'lint', state: 'error', url: 'https://ci.example.test/3' },
+      { id: 4, context: 'build', state: 'pending', url: null },
+      { id: 0, context: 'unnumbered', state: 'failure', url: null },
     ]);
     expect(ci).toEqual({
       checked: 4,
       passed: 1,
       failed: [
         { context: 'lint', url: 'https://ci.example.test/3' },
-        { context: 'ignored-without-id', url: null },
+        { context: 'unnumbered', url: null },
       ],
       pending: [{ context: 'build', url: null }],
     });
