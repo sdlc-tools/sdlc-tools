@@ -1,13 +1,22 @@
 name: Publish
 
-# Regular releases, on every push to main:
+# Two release channels, both over npm trusted publishing (OIDC) with provenance.
+# No npm token is stored anywhere. npm binds the trusted publisher to this file
+# name, so both channels live here.
+#
+# Stable (`latest`), on every push to main:
 #   - with pending changesets, opens or updates the "Version Packages" pull request;
-#   - when that pull request is merged, publishes the bumped packages over npm
-#     trusted publishing (OIDC) with provenance. No npm token is stored anywhere.
+#   - when that pull request is merged, publishes the bumped packages, then
+#     merges main back into develop.
+# Beta (`beta`), on every push to develop:
+#   - with pending changesets, publishes snapshot prereleases of the packages they
+#     bump (for example 0.1.1-beta-20260101120000). The version change is computed
+#     in the runner and never committed; without pending changesets nothing is
+#     published.
 # The first version of each package is published by publish-init.yml.
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
 
 concurrency:
   group: release
@@ -17,6 +26,7 @@ permissions: {}
 
 jobs:
   select-mode:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -89,3 +99,107 @@ jobs:
       - uses: changesets/action/publish@v2
         with:
           pack-dir-artifact-id: ${{ needs.pack.outputs.pack-dir-artifact-id }}
+
+  # Merges the released state back so develop has the new versions, changelogs and
+  # consumed changesets. A merge commit and a plain push: a conflict or a push that
+  # lost a race fails the job instead of overwriting anything. The push uses the
+  # workflow token, so it does not start another Publish run.
+  sync-develop:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Merge main into develop
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3; do
+            git fetch origin main develop
+            git checkout -B develop origin/develop
+            if git merge-base --is-ancestor origin/main HEAD; then
+              echo "develop already contains main"
+              exit 0
+            fi
+            git merge --no-ff -m "chore: merge main into develop after release" origin/main
+            if git push origin develop; then
+              exit 0
+            fi
+            echo "push rejected (attempt $attempt); fetching again"
+          done
+          exit 1
+
+  # Snapshot prereleases from develop. Packing needs no credentials; the job that
+  # publishes is separate so that only it can request an OIDC token.
+  beta-pack:
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      pending: ${{ steps.pending.outputs.pending }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - id: pending
+        run: |
+          count=$(find .changeset -maxdepth 1 -name '*.md' ! -name README.md | wc -l)
+          echo "pending=$([ "$count" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - if: steps.pending.outputs.pending == 'true'
+        uses: ./.github/actions/setup
+
+      # Rewrites versions in the runner only; nothing is committed.
+      - if: steps.pending.outputs.pending == 'true'
+        run: pnpm changeset version --snapshot beta
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - if: steps.pending.outputs.pending == 'true'
+        run: pnpm build
+
+      # `pnpm pack` replaces `workspace:*` with the real version in each tarball.
+      - if: steps.pending.outputs.pending == 'true'
+        run: pnpm -r pack --pack-destination "$RUNNER_TEMP/tarballs"
+
+      - if: steps.pending.outputs.pending == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: beta-tarballs
+          path: ${{ runner.temp }}/tarballs/*.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  # The only beta job that can request an OIDC token.
+  beta-publish:
+    needs: beta-pack
+    if: needs.beta-pack.outputs.pending == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: beta-tarballs
+          path: ${{ runner.temp }}/tarballs
+
+      - run: node scripts/publish-tarballs.mjs --tag beta --snapshot-only "$RUNNER_TEMP/tarballs"
