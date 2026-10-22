@@ -1,0 +1,55 @@
+{
+  "name": "@sdlc-tools/forgejo",
+  "version": "0.0.0",
+  "description": "Pull request command-line client for Forgejo and Gitea, designed for people and AI agents alike: OAuth sign-in with PKCE, credentials in the OS keychain, merge commits only.",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sdlc-tools/sdlc-tools.git",
+    "directory": "packages/forgejo"
+  },
+  "homepage": "https://github.com/sdlc-tools/sdlc-tools/tree/main/packages/forgejo#readme",
+  "bugs": "https://github.com/sdlc-tools/sdlc-tools/issues",
+  "keywords": [
+    "cli",
+    "forgejo",
+    "gitea",
+    "pull-request",
+    "oauth",
+    "pkce",
+    "ai-agents"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "bin": {
+    "sdlc-forgejo": "./dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "@sdlc-tools/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@sdlc-tools/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5"
+  }
+}
