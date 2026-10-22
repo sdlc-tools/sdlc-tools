@@ -1,21 +1,10 @@
 import type { CiSummary, PullRequest, Review } from './model.js';
+import { latestDecisions } from './policy.js';
 
 export function pullLine(pull: PullRequest): string {
   const state = pull.merged ? 'merged' : pull.draft ? 'draft' : pull.state;
   const author = pull.author === null ? '' : `  by ${pull.author}`;
   return `#${pull.number}  ${state}  ${pull.head.ref} → ${pull.base.ref}  ${pull.title}${author}`;
-}
-
-/** The latest decisive review of each reviewer; comments and withdrawn reviews decide nothing. */
-export function decisiveReviews(reviews: readonly Review[]): Map<string, Review> {
-  const latest = new Map<string, Review>();
-  for (const review of reviews) {
-    if (review.reviewer === null || review.dismissed) continue;
-    if (review.state === 'APPROVED' || review.state === 'REQUEST_CHANGES') {
-      latest.set(review.reviewer, review);
-    }
-  }
-  return latest;
 }
 
 function names(values: readonly string[]): string {
@@ -38,11 +27,11 @@ export function pullDetails(
   reviews: readonly Review[],
   ci: CiSummary | undefined,
 ): string {
-  const decisive = [...decisiveReviews(reviews).entries()];
-  const approvedBy = decisive.filter(([, r]) => r.state === 'APPROVED').map(([login]) => login);
-  const changesBy = decisive
-    .filter(([, r]) => r.state === 'REQUEST_CHANGES')
-    .map(([login]) => login);
+  const decisive = latestDecisions(reviews).filter((review) => !review.dismissed);
+  const namesWith = (state: string): string[] =>
+    decisive.filter((review) => review.state === state).map((review) => review.reviewer ?? '');
+  const approvedBy = namesWith('APPROVED');
+  const changesBy = namesWith('REQUEST_CHANGES');
   const mergeable = pull.mergeable === null ? 'unknown' : pull.mergeable ? 'yes' : 'no';
   return [
     pullLine(pull),

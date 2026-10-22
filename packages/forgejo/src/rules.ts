@@ -1,5 +1,14 @@
 import { CliError } from '@sdlc-tools/core';
+import { splitList } from './lists.js';
 import type { CiSummary, PullRequest } from './model.js';
+import {
+  evaluatePolicy,
+  type MergePolicy,
+  type PolicyEvidence,
+  type UnmetCondition,
+} from './policy.js';
+
+export { splitList };
 
 const TITLE_LIMIT = 255;
 
@@ -8,13 +17,6 @@ export interface TextRules {
   readonly titlePattern?: RegExp | undefined;
   /** Section names the description has to contain, as headings or bold lines. */
   readonly requiredSections: readonly string[];
-}
-
-export function splitList(value: string | undefined): string[] {
-  return (value ?? '')
-    .split(',')
-    .map((item) => item.trim())
-    .filter((item) => item !== '');
 }
 
 export function buildTextRules(settings: {
@@ -40,17 +42,77 @@ export function buildTextRules(settings: {
   return { titlePattern, requiredSections: splitList(settings.prRequiredSections) };
 }
 
-/** The name a heading (`## Name`) or a bold line (`**Name**`) gives its section. */
-function sectionName(line: string): string | undefined {
-  const heading = /^\s{0,3}#{1,6}\s+(.*)$/.exec(line);
-  const bold = /^\s{0,3}(?:\*\*|__)(.+?)(?:\*\*|__)\s*:?\s*$/.exec(line);
-  const raw = heading?.[1] ?? bold?.[1];
-  return raw?.replace(/[*_]/g, '').replace(/:\s*$/, '').trim().toLowerCase();
+const normalizeName = (raw: string): string =>
+  raw.replace(/[*_]/g, '').replace(/:\s*$/, '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+interface SectionLabel {
+  readonly line: number;
+  readonly name: string;
+  /** The heading level; `undefined` for a bold label, which ends at the next label of any kind. */
+  readonly level: number | undefined;
+  /** Text on the label's own line, after a bold `**Name**: value`. */
+  readonly inline: string;
 }
 
-function hasSection(body: string, section: string): boolean {
-  const wanted = section.trim().toLowerCase();
-  return body.split('\n').some((line) => sectionName(line) === wanted);
+/**
+ * The labels a description gives its sections: headings (`## Name`) and bold labels (`**Name**`,
+ * `**Name:** value`, `**Name**: value`). Lines inside code fences label nothing, because a pasted
+ * log or shell comment starting with `#` is not a heading.
+ */
+function sectionLabels(lines: readonly string[]): SectionLabel[] {
+  const labels: SectionLabel[] = [];
+  let fence: string | undefined;
+  lines.forEach((text, line) => {
+    const marker = /^\s{0,3}(`{3,}|~{3,})/.exec(text)?.[1]?.charAt(0);
+    if (marker !== undefined) {
+      fence = fence === undefined ? marker : fence === marker ? undefined : fence;
+      return;
+    }
+    if (fence !== undefined) return;
+
+    const heading = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/.exec(text);
+    if (heading?.[1] !== undefined && heading[2] !== undefined) {
+      labels.push({ line, name: normalizeName(heading[2]), level: heading[1].length, inline: '' });
+      return;
+    }
+    const bold = /^\s{0,3}(\*\*|__)(.+?)\1(.*)$/.exec(text);
+    if (bold?.[2] === undefined) return;
+    const rest = (bold[3] ?? '').trim();
+    const closedByColon = bold[2].trim().endsWith(':');
+    if (rest === '' || rest.startsWith(':') || closedByColon) {
+      labels.push({
+        line,
+        name: normalizeName(bold[2]),
+        level: undefined,
+        inline: rest.replace(/^:\s*/, ''),
+      });
+    }
+  });
+  return labels;
+}
+
+type SectionState = 'missing' | 'empty' | 'present';
+
+/** Whether the description has the section, and whether anything but blank lines stands under it. */
+function sectionState(body: string, section: string): SectionState {
+  // A template's placeholder comments are not content, and a heading inside one is not a section.
+  const lines = body.replace(/<!--[\s\S]*?-->/g, '').split(/\r?\n/);
+  const labels = sectionLabels(lines);
+  const wanted = normalizeName(section);
+  let state: SectionState = 'missing';
+  labels.forEach((label, index) => {
+    if (label.name !== wanted) return;
+    const end =
+      labels
+        .slice(index + 1)
+        .find((next) =>
+          label.level === undefined ? true : next.level !== undefined && next.level <= label.level,
+        )?.line ?? lines.length;
+    const content = [label.inline, ...lines.slice(label.line + 1, end)].join('\n').trim();
+    if (content !== '') state = 'present';
+    else if (state === 'missing') state = 'empty';
+  });
+  return state;
 }
 
 /** Everything wrong with a pull request's title and description; empty when it is acceptable. */
@@ -73,9 +135,17 @@ export function checkText(title: string, body: string, rules: TextRules): string
   }
   if (body.trim() === '') problems.push('The description is empty.');
   else {
-    const missing = rules.requiredSections.filter((section) => !hasSection(body, section));
-    if (missing.length > 0) {
-      problems.push(`The description lacks the section(s): ${missing.join(', ')}.`);
+    const states = rules.requiredSections.map((section) => [section, sectionState(body, section)]);
+    const named = (wanted: SectionState): string =>
+      states
+        .filter(([, state]) => state === wanted)
+        .map(([section]) => section)
+        .join(', ');
+    if (named('missing') !== '') {
+      problems.push(`The description lacks the section(s): ${named('missing')}.`);
+    }
+    if (named('empty') !== '') {
+      problems.push(`The description has nothing under the section(s): ${named('empty')}.`);
     }
   }
   return problems;
@@ -148,10 +218,21 @@ export interface MergeGateInput {
   /** Refuse unless the pull request head is this commit (a full sha or a prefix of it). */
   readonly matchHead?: string | undefined;
   readonly ci?: CiSummary | undefined;
+  /** The configured merge preconditions, judged on the head commit with `evidence`. */
+  readonly policy?: MergePolicy | undefined;
+  readonly evidence?: PolicyEvidence | undefined;
 }
 
-/** Whether a pull request may be merged now. CI results only warn: branch protection owns that rule. */
-export function gateMerge(input: MergeGateInput): Verdict {
+export interface MergeVerdict extends Verdict {
+  /** What the policy still lacks, item by item, for callers that read `--json`. */
+  readonly unmet: readonly UnmetCondition[];
+}
+
+/**
+ * Whether a pull request may be merged now. CI results only warn: whether they block is the
+ * server's branch protection, unless the configuration names required statuses, which then block here.
+ */
+export function gateMerge(input: MergeGateInput): MergeVerdict {
   const { pull } = input;
   const violations: string[] = [];
   const warnings: string[] = [];
@@ -181,20 +262,37 @@ export function gateMerge(input: MergeGateInput): Verdict {
     }
     for (const check of input.ci.pending) warnings.push(`CI check still running: ${check.context}`);
   }
-  return { violations, warnings };
+
+  // A pull request that is already merged or closed has nothing left to approve.
+  let unmet: readonly UnmetCondition[] = [];
+  if (input.policy !== undefined && !pull.merged && pull.state === 'open') {
+    const policy = evaluatePolicy(
+      input.policy,
+      pull.head.sha,
+      input.evidence ?? { statuses: [], reviews: [] },
+    );
+    violations.push(...policy.violations);
+    warnings.push(...policy.warnings);
+    unmet = policy.unmet;
+  }
+  return { violations, warnings, unmet };
 }
 
 /** Turns a failed gate into the error every blocked command raises. */
 export function blockedError(
   code: string,
   headline: string,
-  verdict: Verdict,
+  verdict: Verdict & { readonly unmet?: readonly UnmetCondition[] },
   next: readonly string[],
 ): CliError {
   return new CliError('server', headline, {
     code,
     causes: verdict.violations,
     next,
-    details: { violations: verdict.violations, warnings: verdict.warnings },
+    details: {
+      violations: verdict.violations,
+      warnings: verdict.warnings,
+      ...(verdict.unmet === undefined ? {} : { unmet: verdict.unmet }),
+    },
   });
 }

@@ -105,7 +105,36 @@ export const settingCatalog = {
     key: 'prRequiredSections',
     env: envVar('pr_required_sections'),
   },
+  // The merge policy has no flags: a policy the command line can switch off is not enforced.
+  mergeRequiredStatuses: {
+    label: 'required status contexts',
+    key: 'mergeRequiredStatuses',
+    env: envVar('merge_required_statuses'),
+  },
+  mergeRequiredApprovals: {
+    label: 'required approvals',
+    key: 'mergeRequiredApprovals',
+    env: envVar('merge_required_approvals'),
+  },
+  mergeApprovers: {
+    label: 'approvers',
+    key: 'mergeApprovers',
+    env: envVar('merge_approvers'),
+  },
+  mergeMethods: {
+    label: 'allowed merge methods',
+    key: 'mergeMethods',
+    env: envVar('merge_methods'),
+  },
 } as const satisfies SettingSpecs;
+
+/** The settings that make up the merge policy, in the order `buildMergePolicy` reads them. */
+export const MERGE_POLICY_SETTINGS = [
+  'mergeRequiredStatuses',
+  'mergeRequiredApprovals',
+  'mergeApprovers',
+  'mergeMethods',
+] as const satisfies readonly SettingName[];
 
 export type SettingName = keyof typeof settingCatalog;
 

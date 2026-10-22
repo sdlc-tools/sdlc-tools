@@ -72,16 +72,74 @@ describe('pr create', () => {
     expect(lab.forgejo.pulls[0]?.reviewers).toEqual(['bob', 'carol']);
   });
 
-  it('uses the configured reviewers and labels unless the command line names others', async () => {
-    const env = { SDLC_FORGEJO_REVIEWERS: 'bob, carol', SDLC_FORGEJO_LABELS: 'bug' };
+  it('uses the configured labels unless the command line names others', async () => {
+    const env = { SDLC_FORGEJO_LABELS: 'bug' };
     const lab = await ready();
     await lab.run(create, { env });
-    expect(lab.forgejo.pulls[0]?.reviewers).toEqual(['bob', 'carol']);
     expect(lab.forgejo.pulls[0]?.labels).toEqual([1]);
 
     const other = await ready();
-    await other.run([...create, '--reviewer', 'dave'], { env });
-    expect(other.forgejo.pulls[0]?.reviewers).toEqual(['dave']);
+    await other.run([...create, '--label', 'feature'], { env });
+    expect(other.forgejo.pulls[0]?.labels).toEqual([2]);
+  });
+
+  describe('default reviewers', () => {
+    const env = { SDLC_FORGEJO_REVIEWERS: 'bob, carol' };
+
+    it('are requested on every pull request', async () => {
+      const lab = await ready();
+      const run = await lab.run([...create, '--json'], { env });
+      expect(run.code, run.stderr).toBe(0);
+      expect(lab.forgejo.pulls[0]?.reviewers).toEqual(['bob', 'carol']);
+      expect(run.json()).toMatchObject({ reviewers: ['bob', 'carol'] });
+    });
+
+    it('are merged with --reviewer, each user once whatever the case', async () => {
+      const lab = await ready();
+      const run = await lab.run(
+        [...create, '--json', '--reviewer', 'dave', '--reviewer', 'Bob', '--reviewer', 'dave'],
+        { env },
+      );
+      expect(lab.forgejo.pulls[0]?.reviewers).toEqual(['bob', 'carol', 'dave']);
+      expect(run.json()).toMatchObject({ reviewers: ['bob', 'carol', 'dave'] });
+      expect(lab.forgejo.count(`POST ${PULLS}/1/requested_reviewers`)).toBe(1);
+    });
+
+    it('leave out the author, so that the others are still requested', async () => {
+      const lab = await ready();
+      const run = await lab.run([...create, '--json'], {
+        env: { SDLC_FORGEJO_REVIEWERS: 'bob, Alice, carol' },
+      });
+      expect(run.code, run.stderr).toBe(0);
+      expect(lab.forgejo.pulls[0]?.reviewers).toEqual(['bob', 'carol']);
+      expect(run.json()).toMatchObject({ reviewers: ['bob', 'carol'] });
+    });
+
+    it('request nobody when the author is the only default reviewer', async () => {
+      const lab = await ready();
+      const run = await lab.run(create, { env: { SDLC_FORGEJO_REVIEWERS: 'alice' } });
+      expect(run.code, run.stderr).toBe(0);
+      expect(lab.forgejo.count(`POST ${PULLS}/1/requested_reviewers`)).toBe(0);
+    });
+
+    it('leave the call to the server when the author is named with --reviewer', async () => {
+      const lab = await ready();
+      const run = await lab.run([...create, '--reviewer', 'alice', '--json'], { env });
+      expect(run.code).toBe(6);
+      expect(run.errorJson().error.code).toBe('pull_request_incomplete');
+    });
+
+    it('do not cost a request to look up the author when there are none', async () => {
+      const lab = await ready();
+      await lab.run(create);
+      expect(lab.forgejo.count('GET /user')).toBe(0);
+    });
+
+    it('ask for nothing when there are none', async () => {
+      const lab = await ready();
+      await lab.run(create);
+      expect(lab.forgejo.count(`POST ${PULLS}/1/requested_reviewers`)).toBe(0);
+    });
   });
 
   it('reads the description from a file or from standard input', async () => {
@@ -258,6 +316,15 @@ describe('pr create checks the text before anything else', () => {
     await rejected(
       ['pr', 'create', '--title', 'T', '--body', '## Summary\nx'],
       'lacks the section(s): Testing',
+      env,
+    );
+  });
+
+  it('a description whose configured section is empty', async () => {
+    const env = { SDLC_FORGEJO_PR_REQUIRED_SECTIONS: 'Summary, Testing' };
+    await rejected(
+      ['pr', 'create', '--title', 'T', '--body', '## Summary\nx\n## Testing\n<!-- how? -->'],
+      'nothing under the section(s): Testing',
       env,
     );
   });
