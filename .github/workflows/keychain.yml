@@ -59,11 +59,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes gnome-keyring libsecret-1-0 dbus-x11
       - run: pnpm install --frozen-lockfile
-      # The keyring daemon needs a D-Bus session and an unlocked login collection.
-      # The store is pinned, so the job fails instead of silently falling back to the kernel keyring.
+      # A fresh runner has no login keyring: starting the daemon with a password on stdin
+      # creates one and unlocks it (the password itself is irrelevant). The store is pinned,
+      # so the job fails instead of silently falling back to the kernel keyring.
       - run: |
           dbus-run-session -- bash -c '
-            echo -n "" | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+            gnome-keyring-daemon --components=secrets --daemonize --unlock <<< "ci-password" >/dev/null
             pnpm exec vitest run packages/core/test/keychain.integration.test.ts
           '
         env:
