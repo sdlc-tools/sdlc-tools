@@ -5,6 +5,8 @@
   </picture>
 </p>
 
+English | [한국어](./README.ko.md)
+
 # sdlc-tools
 
 Command-line tools for the development lifecycle, designed to be used by humans and AI agents alike. Every tool answers briefly by default, prints its complete result as one JSON document with `--json`, fails before touching the network when an argument or a credential is missing, and tells you what to do next when a server says 401, 403 or 404.

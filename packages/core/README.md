@@ -1,5 +1,7 @@
 # @sdlc-tools/core
 
+English | [한국어](./README.ko.md)
+
 The foundation shared by every sdlc-tools CLI: credentials in the operating system keychain, OAuth 2.0 sign-in with PKCE, an error and exit-code model, an HTTP client that explains failures, and a command layer that implements one output contract for people and AI agents alike.
 
 It is a library. A tool built on it gets the whole contract below by defining its commands, and everything that touches the outside world (environment, streams, `fetch`, keychain, clock) is injected, so a tool can be tested without a network, a keychain or a process.

@@ -1,5 +1,7 @@
 # @sdlc-tools/jira
 
+English | [한국어](./README.ko.md)
+
 A Jira Cloud command-line client designed for people and AI agents to use together. It searches, reads, creates, edits, transitions, assigns and comments on issues and logs work, with an Atlassian API token kept in your operating system keychain.
 
 Every command answers briefly by default and prints its complete result as one JSON document with `--json`. A missing site, credential or argument is reported before any request is sent, a wrong flag prints the usage of that command, and exit codes tell a script what to do next. The shared behavior is specified in [`@sdlc-tools/core`](../core#the-contract).
