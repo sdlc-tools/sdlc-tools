@@ -2,6 +2,7 @@ import { defineCli, defineGroup } from '@sdlc-tools/core';
 import { auth } from './commands/auth.js';
 import { comment } from './commands/comment.js';
 import { field } from './commands/field.js';
+import { link } from './commands/issue-link.js';
 import { create, edit } from './commands/issue-write.js';
 import { assign, transition, transitions } from './commands/issue-workflow.js';
 import { list, view } from './commands/issue-read.js';
@@ -11,7 +12,7 @@ import { VERSION } from './version.js';
 const issue = defineGroup({
   name: 'issue',
   summary: 'View, search, create and change issues',
-  commands: [view, list, create, edit, transitions, transition, assign, comment, worklog],
+  commands: [view, list, create, edit, transitions, transition, assign, link, comment, worklog],
 });
 
 export const cli = defineCli({

@@ -48,6 +48,13 @@ export interface JiraWorklog {
   readonly comment?: unknown;
 }
 
+export interface JiraLinkType {
+  readonly id?: string;
+  readonly name: string;
+  readonly inward: string;
+  readonly outward: string;
+}
+
 export interface IssueChange {
   readonly fields?: Readonly<Record<string, unknown>>;
   readonly update?: Readonly<Record<string, unknown>>;
@@ -148,6 +155,32 @@ export class JiraClient {
     await this.#http.post(urlPath`/rest/api/3/issue/${key}/transitions`, {
       body: { transition: { id: transitionId }, ...change },
       resource: `issue ${key}`,
+    });
+  }
+
+  async listLinkTypes(): Promise<JiraLinkType[]> {
+    const { data } = await this.#http.get<{ issueLinkTypes?: JiraLinkType[] }>(
+      '/rest/api/3/issueLinkType',
+      { resource: 'the issue link types' },
+    );
+    return data.issueLinkTypes ?? [];
+  }
+
+  /** `outward` is the issue the type's outward phrase applies to ("blocks"); `inward` receives it ("is blocked by"). */
+  async linkIssues(link: {
+    type: string;
+    outward: string;
+    inward: string;
+    comment?: AdfDocument;
+  }): Promise<void> {
+    await this.#http.post('/rest/api/3/issueLink', {
+      body: {
+        type: { name: link.type },
+        outwardIssue: { key: link.outward },
+        inwardIssue: { key: link.inward },
+        ...(link.comment === undefined ? {} : { comment: { body: link.comment } }),
+      },
+      resource: `issues ${link.outward} and ${link.inward}`,
     });
   }
 

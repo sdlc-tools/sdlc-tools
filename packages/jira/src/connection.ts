@@ -182,41 +182,80 @@ export async function connect(
   };
 }
 
-/** Field-id aliases from `jira.fields` in the configuration files; the project file wins over the user file. */
-export async function loadFieldAliases(
-  context: CommandContext,
-): Promise<ReadonlyMap<string, string>> {
+export const FIELD_TYPES = ['string', 'number', 'date', 'datetime', 'richtext', 'list'] as const;
+export type FieldType = (typeof FIELD_TYPES)[number];
+
+export interface FieldAlias {
+  readonly alias: string;
+  readonly id: string;
+  /** Present when the configuration declares the value type, which lets the value be built without asking the site. */
+  readonly type: FieldType | undefined;
+}
+
+/** Workflow settings of `jira` in the configuration files. */
+export interface JiraConfig {
+  readonly fields: ReadonlyMap<string, FieldAlias>;
+  /** Status names in the order an issue moves through them. */
+  readonly workflow: readonly string[];
+}
+
+function invalid(file: string, key: string, expected: string, next?: readonly string[]): CliError {
+  return new CliError('config', `"${TOOL}.${key}" in ${file} must be ${expected}.`, {
+    code: 'config_invalid_value',
+    ...(next === undefined ? {} : { next }),
+  });
+}
+
+function parseAlias(alias: string, raw: unknown, file: string): FieldAlias {
+  const key = `fields.${alias}`;
+  if (typeof raw === 'string' && raw !== '') return { alias, id: raw, type: undefined };
+  if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) {
+    const { id, type } = raw as Record<string, unknown>;
+    if (typeof id !== 'string' || id === '') throw invalid(file, `${key}.id`, 'a field id string');
+    if (type !== undefined && !FIELD_TYPES.some((known) => known === type)) {
+      throw invalid(file, `${key}.type`, `one of ${FIELD_TYPES.join(', ')}`);
+    }
+    return { alias, id, type: type as FieldType | undefined };
+  }
+  throw invalid(file, key, 'a field id string or an object with "id" and optional "type"', [
+    'Put the field id in quotes.',
+  ]);
+}
+
+function parseWorkflow(raw: unknown, file: string): string[] {
+  if (
+    !Array.isArray(raw) ||
+    raw.length < 2 ||
+    raw.some((name) => typeof name !== 'string' || name.trim() === '')
+  ) {
+    throw invalid(file, 'workflow', 'a list of at least two status names');
+  }
+  const names = (raw as string[]).map((name) => name.trim());
+  if (new Set(names.map((name) => name.toLowerCase())).size !== names.length) {
+    throw invalid(file, 'workflow', 'a list without repeated status names');
+  }
+  return names;
+}
+
+/** `jira.fields` and `jira.workflow` from the configuration files; the project file wins over the user file. */
+export async function loadJiraConfig(context: CommandContext): Promise<JiraConfig> {
   const files = await loadConfigFiles(context);
-  const aliases = new Map<string, string>();
+  const fields = new Map<string, FieldAlias>();
+  let workflow: readonly string[] = [];
   for (const file of [files.user, files.project]) {
     const section = file?.data[TOOL];
-    const fields =
-      typeof section === 'object' && section !== null
-        ? (section as Record<string, unknown>).fields
-        : undefined;
-    if (fields === undefined) continue;
-    if (typeof fields !== 'object' || fields === null || Array.isArray(fields)) {
-      throw new CliError(
-        'config',
-        `"${TOOL}.fields" in ${file?.path ?? 'the configuration'} must be an object of alias to field id.`,
-        {
-          code: 'config_invalid_value',
-        },
-      );
-    }
-    for (const [alias, id] of Object.entries(fields)) {
-      if (typeof id !== 'string' || id === '') {
-        throw new CliError(
-          'config',
-          `"${TOOL}.fields.${alias}" in ${file?.path ?? 'the configuration'} must be a field id string.`,
-          {
-            code: 'config_invalid_value',
-            next: ['Put the field id in quotes.'],
-          },
-        );
+    if (typeof section !== 'object' || section === null) continue;
+    const path = file?.path ?? 'the configuration';
+    const { fields: rawFields, workflow: rawWorkflow } = section as Record<string, unknown>;
+    if (rawFields !== undefined) {
+      if (typeof rawFields !== 'object' || rawFields === null || Array.isArray(rawFields)) {
+        throw invalid(path, 'fields', 'an object of alias to field id');
       }
-      aliases.set(alias.toLowerCase(), id);
+      for (const [alias, raw] of Object.entries(rawFields)) {
+        fields.set(alias.toLowerCase(), parseAlias(alias, raw, path));
+      }
     }
+    if (rawWorkflow !== undefined) workflow = parseWorkflow(rawWorkflow, path);
   }
-  return aliases;
+  return { fields, workflow };
 }

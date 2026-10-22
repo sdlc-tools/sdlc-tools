@@ -1,5 +1,6 @@
 import { adfToText } from './adf/text.js';
 import type { JiraIssue } from './client.js';
+import type { AliasedValue } from './fields.js';
 
 type Fields = Readonly<Record<string, unknown>>;
 
@@ -88,8 +89,29 @@ export function renderComments(views: readonly CommentView[]): string {
     .join('\n\n');
 }
 
+/** One line per link, worded from this issue's side: "blocks ABC-2  Fix the build". */
+function renderIssueLinks(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((entry: unknown) => {
+    const link = record(entry);
+    const type = record(link?.type);
+    const outward = record(link?.outwardIssue);
+    const other = outward ?? record(link?.inwardIssue);
+    const phrase = text(outward === undefined ? type?.inward : type?.outward) ?? text(type?.name);
+    const key = text(other?.key);
+    if (phrase === undefined || key === undefined) return [];
+    const summary = nameOf(other?.fields, 'summary');
+    return [`${phrase} ${key}${summary === undefined ? '' : `  ${summary}`}`];
+  });
+}
+
 /** The short rendering of `issue view`; the full issue is available with `--json`. */
-export function renderIssue(issue: JiraIssue, url: string, commentLimit: number): string {
+export function renderIssue(
+  issue: JiraIssue,
+  url: string,
+  commentLimit: number,
+  aliased: readonly AliasedValue[] = [],
+): string {
   const fields = issue.fields;
   const lines = [`${issue.key}  ${summaryOf(issue)}`];
 
@@ -130,6 +152,12 @@ export function renderIssue(issue: JiraIssue, url: string, commentLimit: number)
         `  ${text(subtask?.key) ?? ''}  ${nameOf(subtask?.fields, 'summary') ?? ''}`.trimEnd(),
       );
     }
+  }
+  const links = renderIssueLinks(fields.issuelinks);
+  if (links.length > 0) lines.push('Links:', ...links.map((line) => `  ${line}`));
+  const present = aliased.filter(({ value }) => value !== null);
+  if (present.length > 0) {
+    lines.push('Fields:', ...present.map(({ alias, text }) => `  ${alias}: ${text}`));
   }
   lines.push(url);
 
