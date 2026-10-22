@@ -160,10 +160,15 @@ export function latestDecisions(reviews: readonly Review[]): Review[] {
 
 const short = (sha: string): string => sha.slice(0, 8);
 
-/** An approval counts for the head only if the server did not mark it stale and it was written on that very commit. */
+/**
+ * An approval counts for the head only if the server says it was written on that very commit and
+ * has not marked it stale. An approval whose commit is unknown cannot be tied to the head and does
+ * not count: Forgejo 15 keeps `stale: false` on an approval for an older commit, so the flag alone proves nothing.
+ */
 function approvalFailure(review: Review, head: string): string | undefined {
   if (review.dismissed) return 'approval dismissed';
-  if (review.commit !== null && review.commit.toLowerCase() !== head.toLowerCase()) {
+  if (review.commit === null) return 'approval not tied to a commit';
+  if (review.commit.toLowerCase() !== head.toLowerCase()) {
     return `approved ${short(review.commit)}, not the current head`;
   }
   if (review.stale) return 'approval is stale: the head changed after it';

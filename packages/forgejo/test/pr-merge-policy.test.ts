@@ -202,6 +202,20 @@ describe('pr merge with required approvals', () => {
     await refused(lab, APPROVALS);
   });
 
+  it.each([
+    ['left out of the answer', null],
+    ['an empty string', ''],
+  ])('is refused for an approval whose commit the server reports as %s', async (_, commit) => {
+    const lab = await open();
+    lab.forgejo.reviews.set(1, [{ user: 'bob', state: 'APPROVED', commit }]);
+    const error = await refused(lab, APPROVALS);
+    expect(error.details.unmet[0]).toMatchObject({
+      approvedBy: [],
+      notCounted: [{ reviewer: 'bob', reason: 'approval not tied to a commit' }],
+    });
+    expect(error.causes[0]).toContain('bob (approval not tied to a commit)');
+  });
+
   it('is refused for a dismissed approval and for approval followed by a request for changes', async () => {
     const dismissed = await open();
     dismissed.forgejo.reviews.set(1, [{ user: 'bob', state: 'APPROVED', dismissed: true }]);

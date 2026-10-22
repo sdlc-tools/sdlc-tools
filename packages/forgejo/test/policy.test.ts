@@ -291,12 +291,16 @@ describe('required approvals', () => {
     expect(verdict.violations[0]).toContain('bob (approved bbbbbbbb, not the current head)');
   });
 
-  it('relies on the stale mark alone when the server does not say which commit was reviewed', () => {
+  it('does not count an approval the server does not tie to a commit, whether or not it is marked stale', () => {
     const policy = policyOf({ mergeRequiredApprovals: '1' });
-    expect(judge(policy, [review(1, 'bob', 'APPROVED', { commit: null })]).violations).toEqual([]);
-    expect(
-      judge(policy, [review(1, 'bob', 'APPROVED', { commit: null, stale: true })]).violations,
-    ).toHaveLength(1);
+    for (const stale of [false, true]) {
+      const verdict = judge(policy, [review(1, 'bob', 'APPROVED', { commit: null, stale })]);
+      expect(verdict.violations[0]).toContain('bob (approval not tied to a commit)');
+      expect(verdict.unmet[0]).toMatchObject({
+        approvedBy: [],
+        notCounted: [{ reviewer: 'bob', reason: 'approval not tied to a commit' }],
+      });
+    }
   });
 
   it('compares commits ignoring case', () => {
