@@ -23,7 +23,7 @@
       "eslint --max-warnings 0 --no-warn-ignored",
       "prettier --check"
     ],
-    "*.{json,md,yml,yaml,svg}": "prettier --check"
+    "*.{json,md,yml,yaml}": "prettier --check"
   },
   "devDependencies": {
     "@changesets/changelog-github": "1.0.1",
