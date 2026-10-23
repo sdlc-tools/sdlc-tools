@@ -23,8 +23,9 @@ import { serverOptions } from './shared.js';
 const UNREGISTERED_REDIRECT_HINT =
   'If the browser shows "Unregistered Redirect URI", the OAuth application is probably a confidential client, ' +
   'for which the server compares the redirect address including its port. Either register it as a public client ' +
-  '(Confidential client off; where that option sits depends on the server), or register a fixed ' +
-  'redirect address (loopback address, that port, path /callback) and run `auth login` with --callback-port <port>.';
+  '(Confidential client off; where that option sits depends on the server), or register the redirect ' +
+  'address http://127.0.0.1:<port>/callback with a fixed port (exactly that text, not localhost) and run ' +
+  '`auth login --callback-port <port>` with that same port.';
 
 const iso = (ms: number | undefined): string | null =>
   ms === undefined ? null : new Date(ms).toISOString();

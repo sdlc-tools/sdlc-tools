@@ -102,7 +102,8 @@ describe('auth login with OAuth', () => {
     expect(run.stderr).toContain('"Unregistered Redirect URI"');
     expect(run.stderr).toContain('confidential client');
     expect(run.stderr).toContain('public client');
-    expect(run.stderr).toContain('--callback-port <port>');
+    expect(run.stderr).toContain('http://127.0.0.1:<port>/callback');
+    expect(run.stderr).toContain('--callback-port <port>` with that same port');
   });
 
   it('takes the client id from the environment', async () => {
