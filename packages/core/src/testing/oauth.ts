@@ -50,7 +50,7 @@ export class FakeAuthorizationServer {
 
   readonly #expiresIn: number;
   readonly #rotate: boolean;
-  readonly #clientSecret: string | undefined;
+  #clientSecret: string | undefined;
   readonly #tokenRequestFormat: 'form' | 'json' | undefined;
   readonly #codes = new Map<string, AuthorizationRequest>();
   readonly #refreshTokens = new Set<string>();
@@ -89,6 +89,14 @@ export class FakeAuthorizationServer {
   /** Makes the next token request fail with this response. */
   failNextTokenRequest(status: number, body: unknown): void {
     this.#failNext = { status, body };
+  }
+
+  /**
+   * Simulates regenerating the client secret in the server's console: the old one is refused from
+   * now on. `client` keeps the old secret, as a stale configuration would.
+   */
+  changeClientSecret(secret: string): void {
+    this.#clientSecret = secret;
   }
 
   /** Invalidates every refresh token issued so far. */

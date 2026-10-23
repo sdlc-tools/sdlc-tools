@@ -75,7 +75,7 @@ Atlassian does not let a command-line tool sign in on its own: every OAuth app h
 }
 ```
 
-**3. Sign in.** In a terminal the command asks for the client secret and does not show what you type:
+**3. Sign in.** The first time, the command asks for the client secret in a terminal and does not show what you type:
 
 ```sh
 sdlc-jira auth login --oauth
@@ -87,9 +87,11 @@ From a script, pipe the secret in with `--client-secret-stdin`:
 <command that prints the secret> | sdlc-jira auth login --oauth --client-secret-stdin
 ```
 
+You give the secret once. The keychain keeps it, and every later sign-in for the same client id, such as the one after a refresh token expired, reuses it without asking. The secret is asked for again only when none is stored, when the configured client id belongs to another app, or when you pass `--client-secret-stdin`, which stores the new secret in place of the old one. Use that after you regenerate the secret in the developer console; if the stored secret is refused, the error tells you so.
+
 Your browser opens Atlassian's consent screen, where you choose the site and approve. The command then finds the site among the ones you allowed (if you chose another one it stops, names the allowed sites and stores nothing), checks the sign-in against the API, and stores the tokens, the client secret and the site's cloud id in the keychain.
 
-- The client secret has no flag and no environment variable: it comes from the prompt or from `--client-secret-stdin`. It never appears in the command line, the output (including `--json`), an error message or a configuration file; a file that contains `clientSecret` is refused. Without a terminal the command does not read standard input unless `--client-secret-stdin` asks for it.
+- The client secret has no flag and no environment variable: it comes from the keychain, the prompt or `--client-secret-stdin`. It never appears in the command line, the output (including `--json`), an error message or a configuration file; a file that contains `clientSecret` is refused. Without a terminal the command does not read standard input unless `--client-secret-stdin` asks for it.
 - Requests go through Atlassian's API gateway for the site's cloud id instead of the site address. Everything else works the same, and issue links still point at your site.
 - The access token lasts an hour. It is renewed shortly before it expires, and once more when Jira answers 401. Atlassian replaces the refresh token on every renewal; the new one is written to the keychain, and a command that finds another process has already renewed it uses that process's token. After 90 days without use the refresh token expires, and the command says to sign in again (exit code `3`).
 - `auth login --oauth` replaces an earlier sign-in; signing in with an API token replaces an OAuth sign-in and removes its client secret. `auth logout` removes both. `SDLC_JIRA_TOKEN` still wins over the keychain when it is set.

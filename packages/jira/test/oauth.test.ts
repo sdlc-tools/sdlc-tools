@@ -155,6 +155,122 @@ describe('auth login --oauth', () => {
   });
 });
 
+describe('auth login --oauth again', () => {
+  const NEW_SECRET = 'regenerated-secret-value';
+  const OTHER_APP = [
+    'auth',
+    'login',
+    '--oauth',
+    '--client-id',
+    'another-app',
+    '--callback-port',
+  ] as const;
+
+  it('reuses the stored client secret without asking for it', async () => {
+    await lab.signIn();
+
+    // Not a terminal and no flag: asking would fail with missing_client_secret.
+    const piped = await lab.login([], { stdin: '' });
+    expect(piped.code, piped.stderr).toBe(0);
+    expect(piped.stderr).toContain('Using the client secret stored in the keychain.');
+    expect(lab.auth.tokenRequests.at(-1)).toMatchObject({
+      grant_type: 'authorization_code',
+      client_secret: CLIENT_SECRET,
+    });
+
+    // A terminal is not prompted either, and what is typed there is never read.
+    const typed = await lab.login([], { stdin: { typed: 'never-read-secret' } });
+    expect(typed.code, typed.stderr).toBe(0);
+    expect(typed.stderr).not.toContain('Client secret: ');
+    expect(lab.auth.tokenRequests.at(-1)).toMatchObject({ client_secret: CLIENT_SECRET });
+
+    for (const run of [piped, typed]) expectNoSecrets(run);
+    expect(typed.stdout + typed.stderr).not.toContain('never-read-secret');
+  });
+
+  it('signs in again after the refresh token expired, without the secret', async () => {
+    await lab.signIn();
+    lab.now = TEST_NOW + 91 * 24 * HOUR;
+    lab.auth.revokeRefreshTokens();
+    expect((await lab.run(['issue', 'view', 'ABC-1'])).code).toBe(3);
+
+    const again = await lab.login([], { stdin: '' });
+    expect(again.code, again.stderr).toBe(0);
+    expect((await lab.run(['issue', 'view', 'ABC-1', '--json'])).code).toBe(0);
+  });
+
+  it('asks for the secret when the configured client id is another app', async () => {
+    await lab.signIn();
+    const before = await lab.store.get(APP_ACCOUNT);
+    const port = String(lab.port);
+
+    // Without a terminal it cannot ask, so it fails before any request.
+    lab.fetch.calls.length = 0;
+    const piped = await lab.run([...OTHER_APP, port], { stdin: '' });
+    expect(piped.code).toBe(2);
+    expect(piped.stderr).toContain('Missing the client secret');
+    expect(lab.fetch.calls).toHaveLength(0);
+
+    // On a terminal it asks, and the answer, not the stored secret, goes to the token endpoint.
+    const typed = await lab.run([...OTHER_APP, port], { stdin: { typed: 'another-secret' } });
+    expect(typed.stderr).toContain('Client secret: ');
+    expect(lab.auth.tokenRequests.at(-1)).toMatchObject({
+      client_id: 'another-app',
+      client_secret: 'another-secret',
+    });
+    expect(typed.stdout + typed.stderr).not.toContain('another-secret');
+    // The fake server knows one app only, so this sign-in is refused and leaves what is stored alone.
+    expect(typed.code).toBe(3);
+    expect(await lab.store.get(APP_ACCOUNT)).toBe(before);
+  });
+
+  it('replaces the stored secret when --client-secret-stdin gives another', async () => {
+    await lab.signIn();
+    lab.auth.changeClientSecret(NEW_SECRET);
+
+    const replaced = await lab.login(['--client-secret-stdin'], { stdin: `${NEW_SECRET}\n` });
+    expect(replaced.code, replaced.stderr).toBe(0);
+    expect(replaced.stderr).not.toContain('Using the client secret stored');
+    expect(lab.auth.tokenRequests.at(-1)).toMatchObject({ client_secret: NEW_SECRET });
+    expect(JSON.parse((await lab.store.get(APP_ACCOUNT)) ?? '')).toMatchObject({
+      clientSecret: NEW_SECRET,
+    });
+    expect(replaced.stdout + replaced.stderr).not.toContain(NEW_SECRET);
+
+    // Later sign-ins use the replacement.
+    const later = await lab.login([], { stdin: '' });
+    expect(later.code, later.stderr).toBe(0);
+    expect(lab.auth.tokenRequests.at(-1)).toMatchObject({ client_secret: NEW_SECRET });
+  });
+
+  it('says how to enter a new secret when the stored one is refused', async () => {
+    await lab.signIn();
+    lab.auth.changeClientSecret(NEW_SECRET);
+
+    const run = await lab.login(['--json'], { stdin: '' });
+
+    expect(run.code).toBe(3);
+    expect(errorOf(run)).toMatchObject({ code: 'oauth_invalid_client' });
+    expect(String(errorOf(run).next)).toContain(
+      'sdlc-jira auth login --oauth --client-secret-stdin',
+    );
+    expectNoSecrets(run);
+    // Nothing is replaced until a new secret is given.
+    expect(JSON.parse((await lab.store.get(APP_ACCOUNT)) ?? '')).toMatchObject({
+      clientSecret: CLIENT_SECRET,
+    });
+  });
+
+  it('keeps the secret of one profile apart from the other profiles', async () => {
+    await lab.signIn();
+    lab.fetch.calls.length = 0;
+    const run = await lab.login(['--profile', 'ops'], { stdin: '' });
+    expect(run.code).toBe(2);
+    expect(run.stderr).toContain('Missing the client secret');
+    expect(lab.fetch.calls).toHaveLength(0);
+  });
+});
+
 describe('auth login --oauth fails locally', () => {
   const noRequest = (run: { fetchCalls: readonly unknown[]; stdout: string }) => {
     expect(run.fetchCalls).toHaveLength(0);
@@ -324,6 +440,8 @@ describe('auth login --oauth fails without storing anything', () => {
 
     expect(run.code).toBe(3);
     expect(errorOf(run)).toMatchObject({ code: 'oauth_invalid_client' });
+    // The person just typed it; the advice for a stored secret that went stale does not apply.
+    expect(String(errorOf(run).next)).not.toContain('--client-secret-stdin');
     expect(run.stdout + run.stderr).not.toContain('the-wrong-secret');
     expect(run.stdout + run.stderr).not.toContain(CLIENT_SECRET);
     expect(stored()).toEqual([]);
@@ -357,7 +475,8 @@ describe('auth login --oauth fails without storing anything', () => {
       vi.useRealTimers();
     });
 
-    it('names the callback URL the app has to register', async () => {
+    it('names the callback URL the app has to register, while waiting and as the cause', async () => {
+      const hint = `If the browser shows an error instead of the consent screen, the callback URL of the OAuth app is probably not exactly http://127.0.0.1:${lab.port}/callback.`;
       const run = await lab.login(['--json'], {
         // The listener is up and the timeout armed once the browser is asked to open.
         openUrl: () => {
@@ -367,12 +486,8 @@ describe('auth login --oauth fails without storing anything', () => {
       });
 
       expect(run.code).toBe(3);
-      expect(errorOf(run)).toMatchObject({
-        code: 'login_timeout',
-        causes: [
-          `The callback URL of the OAuth app is not exactly http://127.0.0.1:${lab.port}/callback.`,
-        ],
-      });
+      expect(run.stderr).toContain(`Waiting for the sign-in to finish...\n${hint}\n`);
+      expect(errorOf(run)).toMatchObject({ code: 'login_timeout', causes: [hint] });
       expect(stored()).toEqual([]);
     });
   });

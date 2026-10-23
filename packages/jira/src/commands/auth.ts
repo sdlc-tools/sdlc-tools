@@ -10,6 +10,7 @@ import {
   saveCredential,
   type CommandContext,
   type CommandResult,
+  type CredentialTarget,
 } from '@sdlc-tools/core';
 import { JiraClient } from '../client.js';
 import {
@@ -35,6 +36,7 @@ import {
   deleteOAuthApp,
   findCloudId,
   gatewayBaseUrl,
+  loadOAuthApp,
   saveOAuthApp,
 } from '../oauth.js';
 
@@ -73,7 +75,7 @@ async function obtainToken(context: CommandContext, withToken: boolean): Promise
 /**
  * The OAuth client secret never travels on the command line either, and has no environment
  * variable: a terminal gets a hidden prompt, and a pipe has to ask for it with
- * `--client-secret-stdin`.
+ * `--client-secret-stdin`. Only reached when no stored secret applies.
  */
 async function obtainClientSecret(context: CommandContext, fromStdin: boolean): Promise<string> {
   if (fromStdin || context.stdin.isTTY) {
@@ -86,6 +88,36 @@ async function obtainClientSecret(context: CommandContext, fromStdin: boolean): 
       `Or pipe it in: \`<command that prints the secret> | ${OAUTH_LOGIN_COMMAND} --client-secret-stdin\`.`,
     ],
   });
+}
+
+interface ClientSecret {
+  readonly value: string;
+  /** True when it was read back from the keychain rather than given now. */
+  readonly stored: boolean;
+}
+
+/**
+ * Later sign-ins, such as the one after a refresh token expired, reuse the client secret kept in
+ * the keychain: it does not change with the sign-in, and nobody should have to paste it again. A
+ * secret is asked for when none is stored, when it belongs to another client id, or when
+ * `--client-secret-stdin` says to replace it.
+ */
+async function chooseClientSecret(
+  context: CommandContext,
+  owner: CredentialTarget,
+  clientId: string,
+  replace: boolean,
+): Promise<ClientSecret> {
+  if (!replace) {
+    const app = await loadOAuthApp(context, owner);
+    if (app?.clientId === clientId) {
+      context.log(
+        'Using the client secret stored in the keychain. Pass --client-secret-stdin to enter another one.',
+      );
+      return { value: app.clientSecret, stored: true };
+    }
+  }
+  return { value: await obtainClientSecret(context, replace), stored: false };
 }
 
 interface LoginFlags {
@@ -126,7 +158,7 @@ function rejectMixedFlags(flags: LoginFlags): void {
 }
 
 /**
- * Signs in through the browser: the app's client secret is taken, the person approves the request
+ * Signs in through the browser: the app's client secret is taken (see {@link chooseClientSecret}), the person approves the request
  * for the configured site, and the sign-in only counts once the API gateway accepts the token it
  * produced. The tokens, the client secret and the site's cloud id are then kept in the keychain.
  */
@@ -136,8 +168,14 @@ async function loginWithOAuth(
   flags: LoginFlags,
 ): Promise<CommandResult> {
   const settings = await resolveOAuthSettings(context, flags);
-  const clientSecret = await obtainClientSecret(context, flags.clientSecretStdin);
-  const client = atlassianClient({ clientId: settings.clientId, clientSecret });
+  const owner = credentialTarget(target);
+  const secret = await chooseClientSecret(
+    context,
+    owner,
+    settings.clientId,
+    flags.clientSecretStdin,
+  );
+  const client = atlassianClient({ clientId: settings.clientId, clientSecret: secret.value });
 
   let tokens;
   try {
@@ -148,13 +186,15 @@ async function loginWithOAuth(
       callbackPath: CALLBACK_PATH,
       pkce: false,
       extraParams: OAUTH_AUTHORIZATION_PARAMETERS,
+      // Atlassian answers a callback URL it does not know with its own error page and never calls back.
+      stallHint: `If the browser shows an error instead of the consent screen, the callback URL of the OAuth app is probably not exactly ${callbackUrl(settings.callbackPort)}.`,
     });
   } catch (error) {
-    // Atlassian answers a callback URL it does not know with its own error page and never calls back.
-    if (error instanceof CliError && error.code === 'login_timeout') {
+    if (secret.stored && error instanceof CliError && error.code === 'oauth_invalid_client') {
       throw error.with({
-        causes: [
-          `The callback URL of the OAuth app is not exactly ${callbackUrl(settings.callbackPort)}.`,
+        next: [
+          ...error.next,
+          `If the client secret was regenerated in the developer console, enter the new one with \`${OAUTH_LOGIN_COMMAND} --client-secret-stdin\`.`,
         ],
       });
     }
@@ -174,8 +214,11 @@ async function loginWithOAuth(
     site.baseUrl,
   ).myself();
 
-  const owner = credentialTarget(target);
-  await saveOAuthApp(context, owner, { clientId: settings.clientId, clientSecret, cloudId });
+  await saveOAuthApp(context, owner, {
+    clientId: settings.clientId,
+    clientSecret: secret.value,
+    cloudId,
+  });
   await saveCredential(context, owner, { kind: 'oauth', ...tokens });
   return {
     data: {
@@ -205,7 +248,8 @@ const login = defineCommand({
     'write:jira-work and read:jira-user, and the callback URL http://127.0.0.1:<port>/callback. Its client id',
     'and that port come from the settings clientId and callbackPort (or --client-id and --callback-port);',
     'its client secret is typed at a prompt that does not show it, or piped in with --client-secret-stdin,',
-    'and is kept in the keychain only. Tokens are renewed automatically.',
+    'and is kept in the keychain only. Later sign-ins with the same client id reuse the stored secret;',
+    'pass --client-secret-stdin to replace it, for example after regenerating it. Tokens are renewed automatically.',
   ].join(' '),
   options: {
     ...connectionOptions,
@@ -237,7 +281,7 @@ const login = defineCommand({
     clientSecretStdin: {
       type: 'boolean',
       description:
-        'Read the OAuth client secret from standard input (typed without echo in a terminal), with --oauth',
+        'Read the OAuth client secret from standard input (typed without echo in a terminal) and store it instead of the one in the keychain, with --oauth',
     },
   },
   examples: [

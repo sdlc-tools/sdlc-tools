@@ -94,6 +94,19 @@ describe('loginWithPkce as a confidential client', { timeout: REAL_TIMEOUT }, ()
     });
   });
 
+  it('refuses the old secret once the secret was changed on the server', async () => {
+    const { server, login } = setup();
+    server.changeClientSecret('regenerated-secret');
+    const error = await rejection(login({ pkce: false }));
+    expect(error.code).toBe('oauth_invalid_client');
+
+    const tokens = await login({
+      pkce: false,
+      client: { ...server.client, clientSecret: 'regenerated-secret' },
+    });
+    expect(tokens.accessToken).toBe('access-1');
+  });
+
   it('fails with invalid_client for a wrong secret and repeats neither secret', async () => {
     const { server, login } = setup();
     const wrong = { ...server.client, clientSecret: 'a-different-secret' };

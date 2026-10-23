@@ -75,7 +75,7 @@ Atlassian 은 커맨드라인 도구가 혼자서 로그인하도록 허용하�
 }
 ```
 
-**3. 로그인.** 터미널에서는 커맨드가 client secret 을 물어보며, 입력하는 내용은 화면에 보이지 않습니다.
+**3. 로그인.** 처음에는 터미널에서 커맨드가 client secret 을 물어보며, 입력하는 내용은 화면에 보이지 않습니다.
 
 ```sh
 sdlc-jira auth login --oauth
@@ -87,9 +87,11 @@ sdlc-jira auth login --oauth
 <secret 을 출력하는 커맨드> | sdlc-jira auth login --oauth --client-secret-stdin
 ```
 
+secret 은 한 번만 주면 됩니다. 키체인이 보관하고, 같은 client id 로 하는 이후 로그인(예: 리프레시 토큰이 만료된 뒤)은 묻지 않고 그 secret 을 다시 씁니다. 다시 묻는 경우는 저장된 secret 이 없을 때, 설정한 client id 가 다른 앱의 것일 때, 그리고 `--client-secret-stdin` 을 줄 때뿐이며, 이 플래그는 새 secret 을 기존 것 대신 저장합니다. 개발자 콘솔에서 secret 을 다시 발급한 뒤에 쓰세요. 저장된 secret 이 거부되면 오류가 그렇게 알려 줍니다.
+
 브라우저에 Atlassian 동의 화면이 열리고, 거기서 사이트를 고르고 승인합니다. 이어서 커맨드는 허용한 사이트 가운데 설정한 사이트를 찾고(다른 사이트를 골랐다면 허용된 사이트를 알려 주고 아무것도 저장하지 않은 채 멈춥니다), API 로 로그인을 확인한 뒤, 토큰과 client secret, 사이트의 cloud id 를 키체인에 저장합니다.
 
-- client secret 에는 플래그도 환경 변수도 없습니다. 프롬프트나 `--client-secret-stdin` 으로만 받습니다. 커맨드 라인, 출력(`--json` 포함), 오류 메시지, 설정 파일 어디에도 나타나지 않으며, `clientSecret` 이 들어 있는 설정 파일은 거부됩니다. 터미널이 아닐 때는 `--client-secret-stdin` 을 주지 않으면 표준 입력을 읽지 않습니다.
+- client secret 에는 플래그도 환경 변수도 없습니다. 키체인, 프롬프트, `--client-secret-stdin` 으로만 받습니다. 커맨드 라인, 출력(`--json` 포함), 오류 메시지, 설정 파일 어디에도 나타나지 않으며, `clientSecret` 이 들어 있는 설정 파일은 거부됩니다. 터미널이 아닐 때는 `--client-secret-stdin` 을 주지 않으면 표준 입력을 읽지 않습니다.
 - 요청은 사이트 주소 대신 그 사이트의 cloud id 로 Atlassian API 게이트웨이를 거칩니다. 나머지 동작은 같고, 이슈 링크는 계속 내 사이트를 가리킵니다.
 - 액세스 토큰은 한 시간 동안 유효합니다. 만료 직전에 갱신하고, Jira 가 401 로 답했을 때 한 번 더 갱신합니다. Atlassian 은 갱신할 때마다 리프레시 토큰을 바꾸며, 새 토큰은 키체인에 다시 기록됩니다. 다른 프로세스가 이미 갱신해 두었다면 그 프로세스의 토큰을 씁니다. 90일 동안 쓰지 않으면 리프레시 토큰이 만료되고, 커맨드가 다시 로그인하라고 알려 줍니다(종료 코드 `3`).
 - `auth login --oauth` 는 이전 로그인을 대체합니다. API 토큰으로 로그인하면 OAuth 로그인이 대체되고 그 client secret 도 삭제됩니다. `auth logout` 은 둘 다 삭제합니다. `SDLC_JIRA_TOKEN` 이 설정되어 있으면 여전히 키체인보다 우선합니다.
