@@ -124,6 +124,16 @@ export default defineConfig(
     rules: { 'no-restricted-syntax': ['error', ...hardcodedFieldRules] },
   },
   {
+    // The site is a build script for a static page, not a CLI: it writes files, reports
+    // on the console and names the project's own addresses.
+    files: ['packages/site/src/**/*.ts'],
+    rules: {
+      'no-restricted-globals': 'off',
+      'no-restricted-properties': 'off',
+      'no-restricted-syntax': ['error', ...hardcodedFieldRules],
+    },
+  },
+  {
     files: ['packages/*/test/**/*.ts'],
     rules: {
       '@typescript-eslint/no-non-null-assertion': 'off',

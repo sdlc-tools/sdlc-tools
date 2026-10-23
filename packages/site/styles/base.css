@@ -1,0 +1,105 @@
+/* Element defaults and layout primitives. Semantic tokens only; see src/design/tokens.ts. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  background: var(--color-bg);
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  overflow-wrap: break-word;
+}
+
+:lang(ko) {
+  word-break: keep-all;
+}
+
+h1,
+h2,
+h3,
+p,
+ul,
+figure,
+pre {
+  margin: 0;
+}
+
+h1,
+h2,
+h3 {
+  line-height: var(--leading-heading);
+  text-wrap: balance;
+}
+
+ul {
+  padding: 0;
+  list-style: none;
+}
+
+code,
+pre {
+  font-family: var(--font-code);
+}
+
+a {
+  color: var(--color-link);
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.2em;
+}
+
+a:hover {
+  color: var(--color-link-hover);
+  text-decoration-thickness: 0.15em;
+}
+
+:focus-visible {
+  outline: var(--width-focus) solid var(--color-focus);
+  outline-offset: var(--offset-focus);
+}
+
+img,
+picture {
+  display: block;
+  max-width: 100%;
+}
+
+.container {
+  width: 100%;
+  max-width: var(--size-container);
+  margin-inline: auto;
+  padding-inline: var(--size-gutter);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Tracks never exceed the container, so 320 px needs no media query. */
+.grid {
+  display: grid;
+  gap: var(--space-stack);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+}
+
+.grid > * {
+  min-width: 0;
+}

@@ -104,6 +104,10 @@ Publish Init runs `changeset version` in the runner only, appends `-beta.0` to e
 
 npm expires a trusted publisher configuration that has not completed a publish within two days of saving it, so merge the Version Packages pull request soon after step 3.
 
+## Landing page
+
+`packages/site` is the project's website: a private package that builds static HTML and CSS and is deployed to GitHub Pages by `pages.yml` on every push to `main`. It needs no changeset. See its [README](./packages/site/README.md) for the layout and the design system. Adding a tool package also means adding it to the site's content (`src/data.ts` and `src/content.ts`).
+
 ## Adding a tool package
 
 1. Create `packages/<tool>` named `@sdlc-tools/<tool>`, with `@sdlc-tools/core` as a dependency and the same `tsconfig.json`, `tsconfig.build.json` and `vitest.config.ts` layout as `packages/core`.
@@ -121,3 +125,4 @@ npm expires a trusted publisher configuration that has not completed a publish w
 
 3. Build the executable on `defineCli` and `runMain` from `@sdlc-tools/core`, name it `sdlc-<tool>` in `bin`, and test it with `@sdlc-tools/core/testing`.
 4. Add a README that describes the tool as a general-purpose CLI.
+5. Add the tool to the landing page (`packages/site`).
