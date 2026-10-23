@@ -151,6 +151,10 @@ export function checkText(title: string, body: string, rules: TextRules): string
   return problems;
 }
 
+// A draft is a title that starts with one of the server's work-in-progress prefixes, compared
+// case-insensitively. These are the server defaults (`WORK_IN_PROGRESS_PREFIXES = WIP:,[WIP]` under
+// `[repository.pull-request]` in app.ini); a server may configure others, which is why the API's
+// own `draft` value is preferred and this pattern only edits titles and covers servers that omit it.
 const DRAFT_PREFIX = /^\s*(?:\[WIP\]|WIP:)\s*/i;
 
 export function markDraft(title: string): string {
@@ -159,6 +163,13 @@ export function markDraft(title: string): string {
 
 export function isDraftTitle(title: string): boolean {
   return DRAFT_PREFIX.test(title);
+}
+
+/** The title without its draft prefixes; every stacked prefix goes, or the title would still read as a draft. */
+export function unmarkDraft(title: string): string {
+  let rest = title;
+  while (DRAFT_PREFIX.test(rest)) rest = rest.replace(DRAFT_PREFIX, '');
+  return rest;
 }
 
 export interface Verdict {
@@ -239,7 +250,9 @@ export function gateMerge(input: MergeGateInput): MergeVerdict {
   if (pull.merged) violations.push(`#${pull.number} is already merged.`);
   else if (pull.state !== 'open') violations.push(`#${pull.number} is ${pull.state}, not open.`);
   if (pull.draft) {
-    violations.push(`#${pull.number} is a draft; mark it ready for review in the web interface.`);
+    violations.push(
+      `#${pull.number} is a draft; mark it ready with \`sdlc-forgejo pr ready ${pull.number}\`.`,
+    );
   }
   if (pull.mergeable === false && !pull.draft) {
     violations.push(

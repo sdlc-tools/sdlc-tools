@@ -8,6 +8,7 @@ import {
   gateMerge,
   isDraftTitle,
   markDraft,
+  unmarkDraft,
   splitList,
 } from '../src/rules.js';
 import { parseRemoteUrl, parseRepoRef } from '../src/repo.js';
@@ -160,6 +161,12 @@ describe('drafts', () => {
     expect(isDraftTitle('wipe it')).toBe(false);
     expect(markDraft('x')).toBe('WIP: x');
     expect(markDraft('[WIP] x')).toBe('[WIP] x');
+  });
+
+  it('removes every stacked prefix and nothing else', () => {
+    expect(unmarkDraft('WIP: [wip] x')).toBe('x');
+    expect(unmarkDraft('feat: WIP: x')).toBe('feat: WIP: x');
+    expect(unmarkDraft('wipe it')).toBe('wipe it');
   });
 });
 

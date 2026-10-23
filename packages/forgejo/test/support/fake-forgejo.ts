@@ -65,6 +65,13 @@ export class FakeForgejo {
   readonly bodies: { route: string; body: unknown }[] = [];
   /** Makes the next merge request fail with this status. */
   failMerge: number | undefined;
+  /**
+   * The title prefixes this server treats as a draft, compared case-insensitively (the server's
+   * setting). `undefined` stands for a server that does not report `draft` at all.
+   */
+  draftPrefixes: string[] | undefined = ['WIP:', '[WIP]'];
+  /** The title edit with this number (1 is the first) and every later one fail with a server error. */
+  failTitleEditFrom: number | undefined;
   /** The merge methods the repository has enabled; a request for another one is refused. */
   enabledMergeMethods = new Set(['merge', 'rebase', 'rebase-merge', 'squash', 'fast-forward-only']);
   /** Keeps the head branch after a merge, as a server with a protection rule does. */
@@ -212,6 +219,13 @@ export class FakeForgejo {
       state: pull.state,
       merged: pull.merged,
       mergeable: pull.mergeable,
+      ...(this.draftPrefixes === undefined
+        ? {}
+        : {
+            draft: this.draftPrefixes.some((prefix) =>
+              pull.title.toUpperCase().startsWith(prefix.toUpperCase()),
+            ),
+          }),
       head: {
         // A merged pull request whose branch was deleted no longer names it in `ref`.
         ref: pull.merged ? `refs/pull/${pull.number}/head` : pull.head.ref,
@@ -277,6 +291,15 @@ export class FakeForgejo {
     body: unknown,
   ): Response {
     if (suffix === '' && method === 'GET') return jsonResponse(200, this.#render(pull));
+
+    if (suffix === '' && method === 'PATCH') {
+      const edits = this.count(`PATCH /repos/${this.slug}/pulls/${pull.number}`);
+      if (this.failTitleEditFrom !== undefined && edits >= this.failTitleEditFrom) {
+        return jsonResponse(500, { message: 'internal error' });
+      }
+      pull.title = (body as { title: string }).title;
+      return jsonResponse(201, this.#render(pull));
+    }
 
     if (suffix === '/requested_reviewers') {
       const { reviewers } = body as { reviewers: string[] };

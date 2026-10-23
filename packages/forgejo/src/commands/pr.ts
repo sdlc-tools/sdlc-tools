@@ -8,7 +8,7 @@ import {
 import type { ForgejoApi } from '../api.js';
 import { pullDetails, pullLine } from '../format.js';
 import { mergeLogins, splitList } from '../lists.js';
-import { MERGE_METHODS, type MergeMethod } from '../model.js';
+import { MERGE_METHODS, type MergeMethod, type PullRequest } from '../model.js';
 import type { Ports } from '../ports.js';
 import {
   buildMergePolicy,
@@ -24,6 +24,7 @@ import {
   gateCreate,
   gateMerge,
   markDraft,
+  unmarkDraft,
   type Verdict,
 } from '../rules.js';
 import { formatRepo, type RepoRef } from '../repo.js';
@@ -672,10 +673,142 @@ export function prGroup(ports: Ports) {
     },
   });
 
+  const ready = defineCommand({
+    name: 'ready',
+    summary: 'Mark a draft pull request ready for review, or turn it back into a draft',
+    description: [
+      'Forgejo marks a draft by a work-in-progress prefix on the title, "WIP:" and "[WIP]" by default; this removes it',
+      '(or, with --undo, adds "WIP:") and leaves the rest of the title as it is. Without a number it acts on the open pull request of the',
+      'checked-out branch. Nothing is sent when the pull request is already in the requested state.',
+    ].join(' '),
+    positionals: [
+      {
+        name: 'number',
+        description:
+          'Pull request number (default: the open pull request of the checked-out branch)',
+      },
+    ],
+    options: {
+      ...repoOptions,
+      undo: { type: 'boolean', description: 'Turn the pull request back into a draft' },
+    },
+    examples: ['sdlc-forgejo pr ready 12', 'sdlc-forgejo pr ready --undo'],
+    async run({ options, args }, context) {
+      const given = args.number === undefined ? undefined : parsePullNumber(args.number);
+      const head =
+        given === undefined
+          ? await resolveHead(context, ports, undefined, [
+              'Give the pull request number, or run the command inside a checkout on the branch the pull request comes from.',
+            ])
+          : undefined;
+      const { values } = await resolveToolSettings(
+        context,
+        ['host', 'profile', 'clientId', 'repo'],
+        { host: options.host, profile: options.profile, repo: options.repo },
+      );
+      const { api, repo } = await openRepoSession(context, ports, values);
+      const number = given ?? (await openPullOfBranch(api, repo, head ?? ''));
+
+      const pull = await api.getPull(repo, number);
+      if (pull.merged || pull.state !== 'open') {
+        throw new CliError(
+          'server',
+          `#${number} is ${pull.merged ? 'merged' : 'closed'}, so its draft state cannot change.`,
+          { code: 'pull_request_not_open', details: { number, url: pull.url } },
+        );
+      }
+      const wantDraft = options.undo;
+      const outcome = (changed: boolean, current: PullRequest) => ({
+        data: {
+          repo: formatRepo(repo),
+          number,
+          url: current.url,
+          title: current.title,
+          draft: current.draft,
+          changed,
+        },
+        text: `#${number} ${changed ? 'is now' : 'is already'} ${wantDraft ? 'a draft' : 'ready for review'}${changed ? `: ${current.url}` : '; nothing was changed.'}`,
+      });
+      if (pull.draft === wantDraft) return outcome(false, pull);
+
+      const title = wantDraft ? markDraft(pull.title.trim()) : unmarkDraft(pull.title).trim();
+      if (title === '') {
+        throw new CliError('usage', `#${number} has no title besides the draft prefix.`, {
+          code: 'empty_title',
+          next: ['Give the pull request a title in the web interface, then run the command again.'],
+        });
+      }
+      // The prefixes the server recognises differ from the default ones: the title cannot change the state.
+      if (title === pull.title) throw draftUnchanged(number, wantDraft);
+      const updated = await api.setPullTitle(repo, number, title);
+      // The server's answer is the proof, not the title that was sent.
+      if (updated.draft !== wantDraft) {
+        // The edit did not move the state, so it must not stay: the new title would be merged as it is.
+        const restored = await api.setPullTitle(repo, number, pull.title).then(
+          () => undefined,
+          (error: unknown) => cliMessage(error),
+        );
+        throw draftUnchanged(
+          number,
+          wantDraft,
+          restored === undefined
+            ? []
+            : [
+                `The original title could not be restored (${restored}); it is now "${title}". Change it back in the web interface.`,
+              ],
+        );
+      }
+      return outcome(true, updated);
+    },
+  });
+
   return defineGroup({
     name: 'pr',
     summary: 'List, open, review and merge pull requests',
-    commands: [list, view, check, create, reviewers, labels, merge],
+    commands: [list, view, check, create, ready, reviewers, labels, merge],
+  });
+}
+
+function draftUnchanged(
+  number: number,
+  wantDraft: boolean,
+  extraCauses: readonly string[] = [],
+): CliError {
+  return new CliError(
+    'server',
+    `The title of #${number} cannot make it ${wantDraft ? 'a draft' : 'ready for review'} on this server.`,
+    {
+      code: 'draft_unchanged',
+      causes: [
+        'The server uses other work-in-progress prefixes than "WIP:" and "[WIP]".',
+        ...extraCauses,
+      ],
+      next: [
+        `Check \`sdlc-forgejo pr view ${number}\`, or change the draft state in the web interface.`,
+      ],
+    },
+  );
+}
+
+/** The one open pull request whose head is this branch of this repository. */
+async function openPullOfBranch(api: ForgejoApi, repo: RepoRef, head: string): Promise<number> {
+  const full = formatRepo(repo).toLowerCase();
+  const found = await api.listPulls(repo, {
+    state: 'open',
+    accept: (pull) => pull.head.ref === head && pull.head.repo?.toLowerCase() === full,
+  });
+  if (found.length === 1 && found[0] !== undefined) return found[0].number;
+  if (found.length === 0) {
+    throw new CliError('not-found', `No open pull request has "${head}" as its head.`, {
+      code: 'no_pull_request',
+      next: [
+        'Give the pull request number, or run the command on the branch the pull request comes from.',
+      ],
+    });
+  }
+  throw new CliError('usage', `More than one open pull request has "${head}" as its head.`, {
+    code: 'ambiguous_pull_request',
+    next: [`Give the number: ${found.map((pull) => `#${pull.number}`).join(', ')}.`],
   });
 }
 
@@ -692,13 +825,16 @@ async function resolveHead(
   context: CommandContext,
   ports: Ports,
   head: string | undefined,
+  next: readonly string[] = [
+    'Pass --head <branch>, or run the command inside a checkout on that branch.',
+  ],
 ): Promise<string> {
   const name = head ?? (await ports.git.currentBranch(context.cwd));
   if (name === undefined) {
     throw new CliError('config', 'Cannot tell which branch to use.', {
       code: 'missing_head',
       causes: ['The current directory is not a checkout on a branch.'],
-      next: ['Pass --head <branch>, or run the command inside a checkout on that branch.'],
+      next,
     });
   }
   return assertBranchName(name, 'branch');
