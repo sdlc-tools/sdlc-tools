@@ -9,4 +9,5 @@ export * from './main.js';
 export * from './oauth/index.js';
 export { serializeJson } from './output.js';
 export * from './runtime.js';
+export * from './secret.js';
 export * from './url.js';

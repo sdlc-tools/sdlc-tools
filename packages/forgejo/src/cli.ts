@@ -22,6 +22,6 @@ export function createCli({ version, ports }: CreateCliOptions): Cli {
       'The server comes from --host, SDLC_FORGEJO_HOST or the configuration; the repository from --repo,',
       'SDLC_FORGEJO_REPO, the configuration or the origin remote of the current checkout.',
     ].join('\n'),
-    commands: [authGroup(ports), prGroup(ports), branchGroup(ports)],
+    commands: [authGroup(), prGroup(ports), branchGroup(ports)],
   });
 }

@@ -14,14 +14,28 @@ npm install --global @sdlc-tools/jira   # installs the `sdlc-jira` command
 
 ## Sign in
 
-Create an API token in your Atlassian account (Security, then API tokens). Put it in the environment without echoing it, then store it:
+Create an API token in your Atlassian account (Security, then API tokens), then sign in. In a terminal the command asks for the token and does not show what you type:
+
+```sh
+sdlc-jira auth login --site your-team.atlassian.net --email you@example.com
+```
+
+From a script or an AI agent, pipe the token in with `--with-token`:
+
+```sh
+<command that prints the token> | sdlc-jira auth login --site your-team.atlassian.net --email you@example.com --with-token
+```
+
+The token can also come from the environment, put there without echoing it:
 
 ```sh
 read -rs SDLC_JIRA_TOKEN && export SDLC_JIRA_TOKEN
 sdlc-jira auth login --site your-team.atlassian.net --email you@example.com
 ```
 
-`auth login` checks the token against the site first and stores it, together with the e-mail address, in the macOS Keychain, Windows Credential Manager or the Linux Secret Service. The token is read from the environment so it never appears in the command line or the shell history, and it is never printed. Credentials are stored per site, so a token is only ever offered to the site it was issued for. Use `--profile <name>` to keep several accounts on one site.
+The sources are tried in this order: `--with-token` (standard input, or the prompt when standard input is a terminal), the `SDLC_JIRA_TOKEN` variable, then the prompt in a terminal. Standard input is read only when `--with-token` is given. Empty input, or input that is not a single word, fails before any request is sent.
+
+`auth login` checks the token against the site first and stores it, together with the e-mail address, in the macOS Keychain, Windows Credential Manager or the Linux Secret Service. The token never appears in the command line, the shell history, the output (including `--json`) or an error message. Credentials are stored per site, so a token is only ever offered to the site it was issued for. Use `--profile <name>` to keep several accounts on one site.
 
 | Command       | Purpose                                                              |
 | ------------- | -------------------------------------------------------------------- |

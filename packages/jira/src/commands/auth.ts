@@ -4,7 +4,9 @@ import {
   defineCommand,
   defineGroup,
   deleteCredential,
+  readSecret,
   saveCredential,
+  type CommandContext,
 } from '@sdlc-tools/core';
 import { JiraClient } from '../client.js';
 import {
@@ -18,13 +20,42 @@ import {
   resolveSite,
 } from '../connection.js';
 
+const TOKEN_LABEL = 'API token';
+
+/**
+ * The token never travels on the command line. `--with-token` reads it from
+ * standard input; otherwise the environment variable wins, then a hidden
+ * prompt when standard input is a terminal. Standard input is only read when
+ * asked for, so a caller whose input never ends is not left waiting.
+ */
+async function obtainToken(context: CommandContext, withToken: boolean): Promise<string> {
+  if (withToken) return readSecret(context, { label: TOKEN_LABEL });
+  const fromEnvironment = context.env[TOKEN_ENV];
+  if (fromEnvironment !== undefined && fromEnvironment !== '') return fromEnvironment;
+  if (context.stdin.isTTY) return readSecret(context, { label: TOKEN_LABEL });
+  throw new CliError(
+    'usage',
+    `Missing the API token: ${TOKEN_ENV} is not set and standard input is not a terminal.`,
+    {
+      code: 'missing_token',
+      next: [
+        'Create an API token in your Atlassian account under Security, then API tokens.',
+        `Run \`${LOGIN_COMMAND}\` in a terminal to be asked for it without the input being shown.`,
+        `Or pipe it in: \`<command that prints the token> | ${LOGIN_COMMAND} --with-token\`.`,
+        `Or export it without echoing it: read -rs ${TOKEN_ENV} && export ${TOKEN_ENV}`,
+      ],
+    },
+  );
+}
+
 const login = defineCommand({
   name: 'login',
   summary: 'Check an API token and store it in the OS keychain',
   description: [
-    `Reads the API token from the ${TOKEN_ENV} environment variable, so it never appears in the`,
-    'command line or the shell history. The token is verified against the site before it is stored,',
-    'together with the e-mail address of the account that owns it.',
+    'Takes the API token from standard input with --with-token, from the',
+    `${TOKEN_ENV} environment variable, or, in a terminal, from a prompt that does not show what you`,
+    'type. It never appears in the command line or the shell history. The token is verified against the',
+    'site before it is stored, together with the e-mail address of the account that owns it.',
   ].join(' '),
   options: {
     ...connectionOptions,
@@ -33,10 +64,15 @@ const login = defineCommand({
       valueName: 'address',
       description: `E-mail address of the Atlassian account (or ${EMAIL_ENV})`,
     },
+    withToken: {
+      type: 'boolean',
+      description:
+        'Read the API token from standard input (typed without echo in a terminal) instead of the environment',
+    },
   },
   examples: [
-    `read -rs ${TOKEN_ENV} && export ${TOKEN_ENV}`,
     'sdlc-jira auth login --site your-team.atlassian.net --email you@example.com',
+    '<command that prints the token> | sdlc-jira auth login --site your-team.atlassian.net --email you@example.com --with-token',
   ],
   async run({ options }, context) {
     const target = await resolveSite(context, options);
@@ -47,21 +83,11 @@ const login = defineCommand({
         next: ['Pass --email you@example.com.', `Or set the ${EMAIL_ENV} environment variable.`],
       });
     }
-    const token = context.env[TOKEN_ENV];
-    if (token === undefined || token === '') {
-      throw new CliError('usage', `Missing the API token: ${TOKEN_ENV} is not set.`, {
-        code: 'missing_token',
-        next: [
-          'Create an API token in your Atlassian account under Security, then API tokens.',
-          `Export it without echoing it: read -rs ${TOKEN_ENV} && export ${TOKEN_ENV}`,
-          `Run \`${LOGIN_COMMAND.replace('<email>', 'you@example.com')}\` again.`,
-        ],
-      });
-    }
+    const token = await obtainToken(context, options.withToken);
 
     const http = createHttp(context, target.site.baseUrl, basicAuth(email, token), [
       `The e-mail address or the API token is wrong, or the token has expired.`,
-      `Create a new token and export it as ${TOKEN_ENV}.`,
+      `Create a new token and enter it again, or export it as ${TOKEN_ENV}.`,
     ]);
     const me = await new JiraClient(http, target.site.baseUrl).myself();
 

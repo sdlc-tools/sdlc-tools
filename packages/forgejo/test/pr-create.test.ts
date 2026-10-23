@@ -1,3 +1,5 @@
+import { runCli } from '@sdlc-tools/core';
+import { createTestRuntime } from '@sdlc-tools/core/testing';
 import { describe, expect, it } from 'vitest';
 import { HOST } from './support/fake-forgejo.js';
 import { Lab } from './support/lab.js';
@@ -153,6 +155,38 @@ describe('pr create', () => {
     lab.stdin = 'From stdin.';
     await lab.run(['pr', 'create', '--title', 'T', '--body-file', '-']);
     expect(lab.forgejo.pulls[1]?.body).toBe('From stdin.');
+  });
+
+  it('is cancelled, not refused as unreadable, when Ctrl-C ends the wait for standard input', async () => {
+    const lab = await ready();
+    const controller = new AbortController();
+    const test = createTestRuntime({
+      fetch: lab.fetch,
+      store: lab.store,
+      env: { SDLC_FORGEJO_HOST: HOST },
+      signal: controller.signal,
+    });
+    // Like the real stream: pending until the signal aborts, then rejected.
+    const waiting = new Promise<string>((_resolve, reject) => {
+      const abort = () => {
+        reject(new DOMException('The operation was aborted.', 'AbortError'));
+      };
+      if (controller.signal.aborted) abort();
+      else controller.signal.addEventListener('abort', abort, { once: true });
+    });
+    const stdin = { ...test.runtime.stdin, readAll: () => waiting };
+
+    const running = runCli(lab.cli, ['pr', 'create', '--title', 'T', '--body-file', '-'], {
+      ...test.runtime,
+      stdin,
+    });
+    controller.abort();
+
+    expect(await running).toBe(130);
+    expect(test.stderr()).toContain('Cancelled.');
+    expect(test.stderr()).not.toContain('Cannot read the description');
+    expect(lab.fetch.calls).toHaveLength(0);
+    expect(lab.forgejo.pulls).toHaveLength(0);
   });
 
   it('opens a draft by prefixing the title once', async () => {

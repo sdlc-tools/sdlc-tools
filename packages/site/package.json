@@ -1,0 +1,19 @@
+{
+  "name": "@sdlc-tools/site",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The sdlc-tools landing page: a static site built to dist/site and deployed to GitHub Pages.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node dist/build.js",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5"
+  }
+}

@@ -1,10 +1,13 @@
 import { spawn } from 'node:child_process';
 import { homedir } from 'node:os';
+import { addAbortSignal } from 'node:stream';
+import { isatty } from 'node:tty';
 import { runCli } from './cli.js';
 import type { Cli } from './command.js';
 import { KeychainSecretStore } from './credentials/keychain.js';
 import { nodeFiles } from './files.js';
-import type { Runtime } from './runtime.js';
+import type { Runtime, StandardInput } from './runtime.js';
+import { readHiddenLine } from './terminal.js';
 
 /** Opens `url` in the default browser. Only http(s) addresses are launched. */
 export function openInBrowser(url: string, platform: NodeJS.Platform): Promise<void> {
@@ -29,6 +32,27 @@ export function openInBrowser(url: string, platform: NodeJS.Platform): Promise<v
   });
 }
 
+/**
+ * Standard input of this process. The stream is only touched when something
+ * reads it, so a command that never asks for input never waits for any, and
+ * cancelling (Ctrl-C) ends a read that is waiting on a pipe.
+ */
+function createNodeStdin(signal?: AbortSignal): StandardInput {
+  const stream = () =>
+    signal === undefined ? process.stdin : addAbortSignal(signal, process.stdin);
+  return {
+    isTTY: isatty(0),
+    async readAll() {
+      const input = stream();
+      input.setEncoding('utf8');
+      let text = '';
+      for await (const chunk of input) text += chunk as string;
+      return text;
+    },
+    readHidden: (prompt) => readHiddenLine(process.stdin, process.stderr, prompt, signal),
+  };
+}
+
 /** The real environment: process streams, global fetch, the OS keychain and the system clock. */
 export function createNodeRuntime(signal?: AbortSignal): Runtime {
   return {
@@ -38,6 +62,7 @@ export function createNodeRuntime(signal?: AbortSignal): Runtime {
     platform: process.platform,
     stdout: process.stdout,
     stderr: process.stderr,
+    stdin: createNodeStdin(signal),
     fetch: globalThis.fetch,
     files: nodeFiles,
     store: new KeychainSecretStore({ platform: process.platform }),

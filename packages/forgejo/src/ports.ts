@@ -29,8 +29,6 @@ export interface Git {
 /** The parts of the outside world that `Runtime` does not carry. */
 export interface Ports {
   readonly git: Git;
-  /** Everything written to standard input, until it ends. */
-  readStdin(): Promise<string>;
   /** Reads a UTF-8 text file; a relative path is relative to the working directory. */
   readTextFile(path: string): Promise<string>;
 }
