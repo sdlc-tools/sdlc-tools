@@ -248,6 +248,14 @@ export class ForgejoApi {
     return toPullRequest(data);
   }
 
+  async setPullTitle(repo: RepoRef, number: number, title: string): Promise<PullRequest> {
+    const { data } = await this.#http.patch<RawPull>(
+      `${repoPath(repo)}${urlPath`/pulls/${number}`}`,
+      { body: { title }, resource: `pull request #${number}` },
+    );
+    return toPullRequest(data);
+  }
+
   async requestReviewers(
     repo: RepoRef,
     number: number,
