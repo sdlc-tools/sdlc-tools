@@ -1,5 +1,12 @@
 # @sdlc-tools/jira
 
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [[`86c67ce`](https://github.com/sdlc-tools/sdlc-tools/commit/86c67ce3be26ead2612377964cf5e6339c18327c)]:
+  - @sdlc-tools/core@0.2.1
+
 ## 0.2.0
 
 ### Minor Changes
