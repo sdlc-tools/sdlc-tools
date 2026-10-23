@@ -110,6 +110,27 @@ describe('pr ready', () => {
       expect(run.stdout).toBe('');
     });
 
+    it('puts the original title back when the edit did not move the state', async () => {
+      const lab_ = await lab('feat: export');
+      lab_.forgejo.draftPrefixes = ['Draft:'];
+      await lab_.run([...ready, '1', '--undo']);
+
+      expect(lab_.forgejo.count(PATCH)).toBe(2);
+      expect(lab_.forgejo.pulls[0]?.title).toBe('feat: export');
+    });
+
+    it('says so when the original title cannot be put back', async () => {
+      const lab_ = await lab('feat: export');
+      lab_.forgejo.draftPrefixes = ['Draft:'];
+      lab_.forgejo.failTitleEditFrom = 2;
+      const run = await lab_.run([...ready, '1', '--undo']);
+
+      expect(run.code).toBe(6);
+      expect(run.stderr).toContain('original title could not be restored');
+      expect(run.stderr).toContain('"WIP: feat: export"');
+      expect(lab_.forgejo.pulls[0]?.title).toBe('WIP: feat: export');
+    });
+
     it('does not report a pull request ready that the server still sees as a draft', async () => {
       const lab_ = await lab('Draft: feat: export');
       lab_.forgejo.draftPrefixes = ['Draft:'];
@@ -128,6 +149,20 @@ describe('pr ready', () => {
       expect(run.code).toBe(6);
       expect(lab_.forgejo.count(PATCH)).toBe(0);
     });
+  });
+
+  it('reads the title when the server does not report a draft state', async () => {
+    const lab_ = await lab('WIP: feat: export');
+    lab_.forgejo.draftPrefixes = undefined;
+    const merge = ['pr', 'merge', '1', '--repo', 'acme/widgets'];
+
+    const blocked = await lab_.run(merge);
+    expect(blocked.code).toBe(6);
+    expect(blocked.stderr).toContain('is a draft');
+
+    const run = await lab_.run([...ready, '1']);
+    expect(run.code, run.stderr).toBe(0);
+    expect(lab_.forgejo.pulls[0]?.title).toBe('feat: export');
   });
 
   it('tells how to name the pull request when no branch can be told', async () => {

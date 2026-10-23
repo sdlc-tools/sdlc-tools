@@ -676,8 +676,8 @@ export function prGroup(ports: Ports) {
     name: 'ready',
     summary: 'Mark a draft pull request ready for review, or turn it back into a draft',
     description: [
-      'Forgejo marks a draft by a "WIP:" or "[WIP]" prefix on the title; this removes it (or, with --undo, adds "WIP:")',
-      'and leaves the rest of the title as it is. Without a number it acts on the open pull request of the',
+      'Forgejo marks a draft by a work-in-progress prefix on the title, "WIP:" and "[WIP]" by default; this removes it',
+      '(or, with --undo, adds "WIP:") and leaves the rest of the title as it is. Without a number it acts on the open pull request of the',
       'checked-out branch. Nothing is sent when the pull request is already in the requested state.',
     ].join(' '),
     positionals: [
@@ -741,7 +741,22 @@ export function prGroup(ports: Ports) {
       if (title === pull.title) throw draftUnchanged(number, wantDraft);
       const updated = await api.setPullTitle(repo, number, title);
       // The server's answer is the proof, not the title that was sent.
-      if (updated.draft !== wantDraft) throw draftUnchanged(number, wantDraft);
+      if (updated.draft !== wantDraft) {
+        // The edit did not move the state, so it must not stay: the new title would be merged as it is.
+        const restored = await api.setPullTitle(repo, number, pull.title).then(
+          () => undefined,
+          (error: unknown) => cliMessage(error),
+        );
+        throw draftUnchanged(
+          number,
+          wantDraft,
+          restored === undefined
+            ? []
+            : [
+                `The original title could not be restored (${restored}); it is now "${title}". Change it back in the web interface.`,
+              ],
+        );
+      }
       return outcome(true, updated);
     },
   });
@@ -753,13 +768,20 @@ export function prGroup(ports: Ports) {
   });
 }
 
-function draftUnchanged(number: number, wantDraft: boolean): CliError {
+function draftUnchanged(
+  number: number,
+  wantDraft: boolean,
+  extraCauses: readonly string[] = [],
+): CliError {
   return new CliError(
     'server',
     `The title of #${number} cannot make it ${wantDraft ? 'a draft' : 'ready for review'} on this server.`,
     {
       code: 'draft_unchanged',
-      causes: ['The server uses other work-in-progress prefixes than "WIP:" and "[WIP]".'],
+      causes: [
+        'The server uses other work-in-progress prefixes than "WIP:" and "[WIP]".',
+        ...extraCauses,
+      ],
       next: [
         `Check \`sdlc-forgejo pr view ${number}\`, or change the draft state in the web interface.`,
       ],
