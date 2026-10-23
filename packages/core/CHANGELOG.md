@@ -1,5 +1,11 @@
 # @sdlc-tools/core
 
+## 0.2.0
+
+### Minor Changes
+
+- [#27](https://github.com/sdlc-tools/sdlc-tools/pull/27) [`f3dfbf0`](https://github.com/sdlc-tools/sdlc-tools/commit/f3dfbf0babd73f78adfb928f972d702f5dd562fa) Thanks [@Seungwoo321](https://github.com/Seungwoo321)! - Add standard input to `Runtime` as `stdin`: `isTTY`, `readAll()` and `readHidden(prompt)`, which reads a line typed on a terminal without echoing it. `readSecret` takes a token from that terminal prompt or from piped input and fails before any request when it is empty or not a single word. `@sdlc-tools/core/testing` gains the `stdin` option on `createTestRuntime` and `execute`. `Runtime` has a new required member, so code that builds a `Runtime` by hand must supply `stdin`; `runMain` and `createTestRuntime` already do.
+
 ## 0.1.0
 
 ### Minor Changes
