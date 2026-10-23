@@ -14,14 +14,28 @@ npm install --global @sdlc-tools/jira   # `sdlc-jira` 커맨드가 설치됩니�
 
 ## 로그인
 
-Atlassian 계정에서 API 토큰을 만듭니다(Security, API tokens). 토큰을 화면에 에코하지 않고 환경 변수에 넣은 뒤 저장합니다.
+Atlassian 계정에서 API 토큰을 만든 뒤(Security, API tokens) 로그인합니다. 터미널에서는 커맨드가 토큰을 물어보며, 입력하는 내용은 화면에 보이지 않습니다.
+
+```sh
+sdlc-jira auth login --site your-team.atlassian.net --email you@example.com
+```
+
+스크립트나 AI 에이전트에서는 `--with-token` 으로 토큰을 파이프로 넘기세요.
+
+```sh
+<토큰을 출력하는 커맨드> | sdlc-jira auth login --site your-team.atlassian.net --email you@example.com --with-token
+```
+
+토큰을 화면에 에코하지 않고 환경 변수에 넣어도 됩니다.
 
 ```sh
 read -rs SDLC_JIRA_TOKEN && export SDLC_JIRA_TOKEN
 sdlc-jira auth login --site your-team.atlassian.net --email you@example.com
 ```
 
-`auth login` 은 먼저 사이트에서 토큰을 확인한 뒤, 이메일 주소와 함께 macOS 키체인, Windows 자격 증명 관리자, Linux Secret Service 에 저장합니다. 토큰은 환경 변수에서 읽으므로 커맨드 라인이나 셸 히스토리에 나타나지 않고, 출력되지도 않습니다. 자격 증명은 사이트별로 저장되어, 토큰은 발급받은 사이트에만 제시됩니다. 한 사이트에서 계정을 여럿 쓰려면 `--profile <name>` 을 사용하세요.
+토큰은 다음 순서로 찾습니다. `--with-token`(표준 입력이며, 표준 입력이 터미널이면 프롬프트), `SDLC_JIRA_TOKEN` 변수, 터미널이라면 프롬프트입니다. 표준 입력은 `--with-token` 을 줄 때만 읽습니다. 입력이 비었거나 한 단어가 아니면 요청을 보내기 전에 실패합니다.
+
+`auth login` 은 먼저 사이트에서 토큰을 확인한 뒤, 이메일 주소와 함께 macOS 키체인, Windows 자격 증명 관리자, Linux Secret Service 에 저장합니다. 토큰은 커맨드 라인, 셸 히스토리, 출력(`--json` 포함), 오류 메시지 어디에도 나타나지 않습니다. 자격 증명은 사이트별로 저장되어, 토큰은 발급받은 사이트에만 제시됩니다. 한 사이트에서 계정을 여럿 쓰려면 `--profile <name>` 을 사용하세요.
 
 | 커맨드        | 용도                                                   |
 | ------------- | ------------------------------------------------------ |

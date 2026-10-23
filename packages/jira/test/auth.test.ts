@@ -92,6 +92,133 @@ describe('auth login', () => {
   });
 });
 
+describe('auth login token input', () => {
+  const FLAGS = ['auth', 'login', '--site', SITE, '--email', EMAIL] as const;
+  const SIGNED_IN = { 'GET /rest/api/3/myself': ME };
+
+  /** Nothing the run printed or stored may contain the token. */
+  function expectNoLeak(run: { stdout: string; stderr: string }, secret = TOKEN) {
+    expect(run.stdout + run.stderr).not.toContain(secret);
+  }
+
+  it('signs in with a token piped to --with-token', async () => {
+    const fetch = fakeJira(SIGNED_IN);
+    const store = new MemorySecretStore();
+    const run = await jira([...FLAGS, '--with-token'], {
+      env: {},
+      stdin: `${TOKEN}\n`,
+      fetch,
+      store,
+    });
+
+    expect(run.code).toBe(0);
+    expect(fetch.calls[0]?.headers.get('authorization')).toBe(BASIC);
+    expect(await loadStoredCredential({ store }, { tool: 'jira', origin: SITE })).toEqual({
+      kind: 'token',
+      token: TOKEN,
+      username: EMAIL,
+    });
+    expectNoLeak(run);
+  });
+
+  it('signs in with a token typed at a prompt that shows nothing', async () => {
+    const fetch = fakeJira(SIGNED_IN);
+    const run = await jira(FLAGS, { env: {}, stdin: { typed: TOKEN }, fetch });
+
+    expect(run.code).toBe(0);
+    expect(fetch.calls[0]?.headers.get('authorization')).toBe(BASIC);
+    expect(run.stderr).toBe('API token: \n');
+    expectNoLeak(run);
+  });
+
+  it('prompts for --with-token too when standard input is a terminal', async () => {
+    const run = await jira([...FLAGS, '--with-token'], {
+      env: {},
+      stdin: { typed: TOKEN },
+      fetch: fakeJira(SIGNED_IN),
+    });
+    expect(run.code).toBe(0);
+    expect(run.stderr).toBe('API token: \n');
+  });
+
+  it('prefers the environment variable to the prompt, and the flag to the variable', async () => {
+    const fromVariable = await jira(FLAGS, {
+      env: { SDLC_JIRA_TOKEN: TOKEN },
+      stdin: { typed: 'typed-token' },
+      fetch: fakeJira(SIGNED_IN),
+    });
+    expect(fromVariable.code).toBe(0);
+    expect(fromVariable.fetchCalls[0]?.headers.get('authorization')).toBe(BASIC);
+    expect(fromVariable.stderr).toBe('');
+
+    const fromFlag = await jira([...FLAGS, '--with-token'], {
+      env: { SDLC_JIRA_TOKEN: 'variable-token' },
+      stdin: TOKEN,
+      fetch: fakeJira(SIGNED_IN),
+    });
+    expect(fromFlag.fetchCalls[0]?.headers.get('authorization')).toBe(BASIC);
+  });
+
+  it('reports the sign-in as JSON without the token', async () => {
+    const run = await jira([...FLAGS, '--with-token', '--json'], {
+      env: {},
+      stdin: TOKEN,
+      fetch: fakeJira(SIGNED_IN),
+    });
+    expect(run.json()).toMatchObject({ email: EMAIL, storage: 'keychain' });
+    expectNoLeak(run);
+  });
+
+  it('does not read standard input unless asked, and lists every way to give the token', async () => {
+    const run = await jira(FLAGS, { env: {}, stdin: TOKEN });
+    expect(run.code).toBe(2);
+    expect(run.stderr).toContain('SDLC_JIRA_TOKEN is not set and standard input is not a terminal');
+    expect(run.stderr).toContain('--with-token');
+    expect(run.fetchCalls).toHaveLength(0);
+  });
+
+  it.each([
+    ['empty piped input', ['--with-token'], '', 'Standard input was empty'],
+    ['blank piped input', ['--with-token'], '\n  \n', 'Standard input was empty'],
+    ['nothing typed', [], { typed: '' }, 'Nothing was typed'],
+  ] as const)('fails before any request on %s', async (_name, extra, stdin, message) => {
+    const store = new MemorySecretStore();
+    const run = await jira([...FLAGS, ...extra], { env: {}, stdin, store });
+
+    expect(run.code).toBe(2);
+    expect(run.stderr).toContain(`${message}: the API token is missing.`);
+    expect(run.fetchCalls).toHaveLength(0);
+    expect(run.stdout).toBe('');
+    expect(await loadStoredCredential({ store }, { tool: 'jira', origin: SITE })).toBeUndefined();
+  });
+
+  it.each([
+    ['two words', 'two words'],
+    ['two lines', 'first-line\nsecond-line\n'],
+  ])('refuses piped input with %s and does not repeat it, even as JSON', async (_name, stdin) => {
+    const run = await jira([...FLAGS, '--with-token', '--json'], { env: {}, stdin });
+
+    expect(run.code).toBe(2);
+    expect(run.errorJson().error).toMatchObject({ kind: 'usage', code: 'invalid_secret' });
+    expect(run.stdout + run.stderr).not.toMatch(/two|first-line|second-line/);
+    expect(run.fetchCalls).toHaveLength(0);
+  });
+
+  it('does not echo a token the site rejects, and stores nothing', async () => {
+    const store = new MemorySecretStore();
+    const run = await jira([...FLAGS, '--with-token', '--json'], {
+      env: {},
+      stdin: TOKEN,
+      fetch: mockFetch(() => jsonResponse(401, { message: 'Unauthorized' })),
+      store,
+    });
+
+    expect(run.code).toBe(3);
+    expectNoLeak(run);
+    expect(await loadStoredCredential({ store }, { tool: 'jira', origin: SITE })).toBeUndefined();
+  });
+});
+
 describe('auth status', () => {
   it('names the account and where the credentials came from', async () => {
     const run = await jira(['auth', 'status'], {
