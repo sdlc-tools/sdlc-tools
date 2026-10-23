@@ -69,6 +69,18 @@ const restrictedGlobals = [
   },
 ];
 
+/** `globalThis.process` reaches the same binding as `process`, so it is restricted alongside it. */
+const restrictedGlobalAccess = (globalsToRestrict) =>
+  globalsToRestrict.map(({ name, message }) => ({ object: 'globalThis', property: name, message }));
+
+const processExitRule = {
+  object: 'process',
+  property: 'exit',
+  message: 'Return an exit code; the entry point sets process.exitCode so output flushes.',
+};
+
+const globalsWithoutConsole = restrictedGlobals.filter((g) => g.name !== 'console');
+
 export default defineConfig(
   { ignores: ['**/dist/**', '**/coverage/**', '**/node_modules/**', 'pnpm-lock.yaml'] },
 
@@ -101,18 +113,18 @@ export default defineConfig(
       'no-restricted-globals': ['error', ...restrictedGlobals],
       'no-restricted-properties': [
         'error',
-        {
-          object: 'process',
-          property: 'exit',
-          message: 'Return an exit code; the entry point sets process.exitCode so output flushes.',
-        },
+        processExitRule,
+        ...restrictedGlobalAccess(restrictedGlobals),
       ],
       'no-restricted-syntax': ['error', ...hardcodedUrlRules, ...hardcodedFieldRules],
     },
   },
   {
     files: ['packages/core/src/main.ts'],
-    rules: { 'no-restricted-globals': 'off' },
+    rules: {
+      'no-restricted-globals': 'off',
+      'no-restricted-properties': ['error', processExitRule],
+    },
   },
   {
     // RFC 8252 loopback redirect URIs are a protocol constant, not a deployment address.
@@ -140,7 +152,12 @@ export default defineConfig(
     // Only the build script reports on the console: it writes files and says where.
     files: ['packages/site/src/build.ts'],
     rules: {
-      'no-restricted-globals': ['error', ...restrictedGlobals.filter((g) => g.name !== 'console')],
+      'no-restricted-globals': ['error', ...globalsWithoutConsole],
+      'no-restricted-properties': [
+        'error',
+        processExitRule,
+        ...restrictedGlobalAccess(globalsWithoutConsole),
+      ],
     },
   },
   {
