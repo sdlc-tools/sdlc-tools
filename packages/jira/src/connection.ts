@@ -8,6 +8,7 @@ import {
   resolveCredential,
   resolveSettings,
   toolEnvVar,
+  validatePort,
   type AuthProvider,
   type CommandContext,
   type CredentialTarget,
@@ -93,17 +94,6 @@ export async function resolveSite(
     { site: flags.site, profile: flags.profile },
   );
   return { site: normalizeServerUrl(values.site, 'Jira site address'), profile: values.profile };
-}
-
-function validatePort(value: string): string {
-  const port = Number(value);
-  if (!/^\d+$/.test(value) || port < 1 || port > 65_535) {
-    throw new CliError('usage', `"${value}" is not a valid port number.`, {
-      code: 'invalid_port',
-      next: ['Use a number between 1 and 65535.'],
-    });
-  }
-  return value;
 }
 
 export interface OAuthSettings {

@@ -195,6 +195,8 @@ Files are JSON objects with one section per tool; values are strings:
 
 `normalizeServerUrl` validates a server address: https is required (plain http only for `localhost`, `127.0.0.1` and `[::1]`), user names and passwords in the address are rejected, and a path prefix is kept. `urlPath` is a tagged template that percent-encodes each value as one path segment and rejects `.`, `..` and empty segments.
 
+`validatePort` checks a TCP port given as a setting, such as a fixed sign-in callback port: whole numbers from 1 to 65535 pass and come back unchanged, anything else fails with the usage error `invalid_port`. Pass it as a setting's `validate`.
+
 ## Credentials
 
 Credentials are kept in the operating system credential store: macOS Keychain, Windows Credential Manager, and on Linux the Secret Service API with the kernel keyring as a fallback when no service is running. The native binding (`@napi-rs/keyring`, prebuilt, no install scripts) is loaded on first use, so commands that never touch credentials never load it.
