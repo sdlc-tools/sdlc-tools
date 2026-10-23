@@ -44,6 +44,13 @@ Copy the client id and pass it once with `--client-id`, or keep it in the config
 - Scopes are not requested unless you pass `--scopes`.
 - The command ends only after the REST API has accepted the new token, so a sign-in that cannot be used is never stored.
 
+**Troubleshooting: "Unregistered Redirect URI".** If the browser shows this page and `auth login` only times out after five minutes, the application is registered as a confidential client. For such a client the server compares the redirect address including its port, and `auth login` listens on a free port. Either of two fixes works:
+
+- Register the application as a public client (Confidential client off). Where that option appears depends on the server version; some edit forms do not show it, in which case create the application again with it off.
+- Keep the confidential client, register a fixed redirect such as `http://127.0.0.1:8765/callback`, and sign in with `auth login --callback-port 8765`.
+
+`auth login` prints this hint while it waits and names it as the likely cause when the sign-in times out.
+
 If the server signs users in through single sign-on, nothing changes: the browser shows the server's usual login page, and you choose the single sign-on button there. The command never sees that login; it only receives the code and tokens the Forgejo server itself issues.
 
 ### Personal access token

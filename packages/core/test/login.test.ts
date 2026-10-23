@@ -199,6 +199,13 @@ describe('loginWithPkce', { timeout: REAL_TIMEOUT }, () => {
     expect(await isListening(redirect)).toBe(false);
   });
 
+  it('prints the stall hint while waiting and names it as the cause of a timeout', async () => {
+    const { login, test } = setup({ openUrl: () => Promise.resolve() });
+    const error = await rejection(login({ timeoutMs: 50, stallHint: 'Check the redirect.' }));
+    expect(test.stderr()).toContain('Waiting for the sign-in to finish...\nCheck the redirect.\n');
+    expect(error.causes).toEqual(['Check the redirect.']);
+  });
+
   it('can be cancelled while waiting', async () => {
     const controller = new AbortController();
     let redirect = '';
