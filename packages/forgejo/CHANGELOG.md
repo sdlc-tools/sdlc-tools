@@ -1,5 +1,17 @@
 # @sdlc-tools/forgejo
 
+## 0.2.0
+
+### Minor Changes
+
+- [#25](https://github.com/sdlc-tools/sdlc-tools/pull/25) [`bbd18f3`](https://github.com/sdlc-tools/sdlc-tools/commit/bbd18f337574fbc3c2579d5243ef0f514b5491ec) Thanks [@Seungwoo321](https://github.com/Seungwoo321)! - Add `pr ready [<number>]` to mark a draft pull request ready for review, and `--undo` to turn it back into a draft. Without a number it uses the open pull request of the checked-out branch, and nothing is sent when the pull request is already in the requested state. `pr merge` now points to it when it refuses a draft.
+
+### Patch Changes
+
+- [#27](https://github.com/sdlc-tools/sdlc-tools/pull/27) [`dc325e3`](https://github.com/sdlc-tools/sdlc-tools/commit/dc325e3e29bf20756fd5df09e1875acb4c950399) Thanks [@Seungwoo321](https://github.com/Seungwoo321)! - `auth login --with-token` and `pr create --body-file -` read standard input through the shared `Runtime`, so Ctrl-C ends a read that is waiting on a pipe instead of leaving the command hanging. Accepted input and messages are unchanged.
+- Updated dependencies [[`f3dfbf0`](https://github.com/sdlc-tools/sdlc-tools/commit/f3dfbf0babd73f78adfb928f972d702f5dd562fa)]:
+  - @sdlc-tools/core@0.2.0
+
 ## 0.1.0
 
 ### Minor Changes
