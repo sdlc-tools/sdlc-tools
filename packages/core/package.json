@@ -1,6 +1,6 @@
 {
   "name": "@sdlc-tools/core",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Shared foundation for sdlc-tools CLIs: credentials in the OS keychain, OAuth2 PKCE login, error and exit-code model, and the human/agent output contract.",
   "license": "MIT",
   "type": "module",
