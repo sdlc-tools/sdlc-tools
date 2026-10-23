@@ -37,7 +37,6 @@ export class Lab {
 
   readonly ports: Ports = {
     git: this.git,
-    readStdin: () => Promise.resolve(this.stdin),
     readTextFile: (path) => {
       const text = this.files.get(path);
       return text === undefined

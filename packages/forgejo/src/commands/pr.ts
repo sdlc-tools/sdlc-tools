@@ -40,8 +40,9 @@ import {
 const DEFAULT_LIMIT = 30;
 
 async function readDescription(
-  options: { readonly body: string | undefined; readonly bodyFile: string | undefined },
+  context: CommandContext,
   ports: Ports,
+  options: { readonly body: string | undefined; readonly bodyFile: string | undefined },
 ): Promise<string> {
   if (options.body !== undefined && options.bodyFile !== undefined) {
     throw new CliError('usage', 'Give the description with --body or --body-file, not both.', {
@@ -57,7 +58,7 @@ async function readDescription(
   }
   try {
     return options.bodyFile === '-'
-      ? await ports.readStdin()
+      ? await context.stdin.readAll()
       : await ports.readTextFile(options.bodyFile);
   } catch (cause) {
     throw new CliError('usage', `Cannot read the description from ${options.bodyFile}.`, {
@@ -342,7 +343,7 @@ export function prGroup(ports: Ports) {
       'sdlc-forgejo pr create --title "feat: add export" --body-file description.md --reviewer alice',
     ],
     async run({ options }, context) {
-      const body = await readDescription(options, ports);
+      const body = await readDescription(context, ports, options);
       const { values } = await resolveToolSettings(
         context,
         [
