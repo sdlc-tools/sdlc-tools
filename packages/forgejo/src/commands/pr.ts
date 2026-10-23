@@ -694,7 +694,12 @@ export function prGroup(ports: Ports) {
     examples: ['sdlc-forgejo pr ready 12', 'sdlc-forgejo pr ready --undo'],
     async run({ options, args }, context) {
       const given = args.number === undefined ? undefined : parsePullNumber(args.number);
-      const head = given === undefined ? await resolveHead(context, ports, undefined) : undefined;
+      const head =
+        given === undefined
+          ? await resolveHead(context, ports, undefined, [
+              'Give the pull request number, or run the command inside a checkout on the branch the pull request comes from.',
+            ])
+          : undefined;
       const { values } = await resolveToolSettings(
         context,
         ['host', 'profile', 'clientId', 'repo'],
@@ -732,21 +737,11 @@ export function prGroup(ports: Ports) {
           next: ['Give the pull request a title in the web interface, then run the command again.'],
         });
       }
+      // The prefixes the server recognises differ from the default ones: the title cannot change the state.
+      if (title === pull.title) throw draftUnchanged(number, wantDraft);
       const updated = await api.setPullTitle(repo, number, title);
       // The server's answer is the proof, not the title that was sent.
-      if (updated.draft !== wantDraft) {
-        throw new CliError(
-          'server',
-          `The server accepted the new title of #${number}, but it still ${wantDraft ? 'reads as ready' : 'reads as a draft'}.`,
-          {
-            code: 'draft_unchanged',
-            causes: ['The server uses other work-in-progress prefixes than "WIP:" and "[WIP]".'],
-            next: [
-              `Check \`sdlc-forgejo pr view ${number}\`, or change the title in the web interface.`,
-            ],
-          },
-        );
-      }
+      if (updated.draft !== wantDraft) throw draftUnchanged(number, wantDraft);
       return outcome(true, updated);
     },
   });
@@ -756,6 +751,20 @@ export function prGroup(ports: Ports) {
     summary: 'List, open, review and merge pull requests',
     commands: [list, view, check, create, ready, reviewers, labels, merge],
   });
+}
+
+function draftUnchanged(number: number, wantDraft: boolean): CliError {
+  return new CliError(
+    'server',
+    `The title of #${number} cannot make it ${wantDraft ? 'a draft' : 'ready for review'} on this server.`,
+    {
+      code: 'draft_unchanged',
+      causes: ['The server uses other work-in-progress prefixes than "WIP:" and "[WIP]".'],
+      next: [
+        `Check \`sdlc-forgejo pr view ${number}\`, or change the draft state in the web interface.`,
+      ],
+    },
+  );
 }
 
 /** The one open pull request whose head is this branch of this repository. */
@@ -793,13 +802,16 @@ async function resolveHead(
   context: CommandContext,
   ports: Ports,
   head: string | undefined,
+  next: readonly string[] = [
+    'Pass --head <branch>, or run the command inside a checkout on that branch.',
+  ],
 ): Promise<string> {
   const name = head ?? (await ports.git.currentBranch(context.cwd));
   if (name === undefined) {
     throw new CliError('config', 'Cannot tell which branch to use.', {
       code: 'missing_head',
       causes: ['The current directory is not a checkout on a branch.'],
-      next: ['Pass --head <branch>, or run the command inside a checkout on that branch.'],
+      next,
     });
   }
   return assertBranchName(name, 'branch');

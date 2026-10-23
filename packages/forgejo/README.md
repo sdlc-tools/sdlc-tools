@@ -178,7 +178,7 @@ Labels are resolved by name before the pull request is created, so a misspelled 
 
 `pr ready [<number>] [--undo]`
 
-Forgejo has no draft flag: a pull request is a draft while its title starts with `WIP:` or `[WIP]` (the server's default prefixes, matched without regard to case). `pr ready` removes the prefix and leaves the rest of the title as it is; `--undo` adds `WIP:` again. Without a number it uses the open pull request of the checked-out branch. Nothing is sent when the pull request is already in the requested state, and the result says so (`changed: false` with `--json`). A merged or closed pull request is refused (exit 6, `pull_request_not_open`), and so is a change the server's answer does not show, for example on a server with other draft prefixes (exit 6, `draft_unchanged`). `pr merge` accepts the pull request once it is ready.
+Forgejo derives a draft from the title: a pull request is a draft while its title starts with one of the server's work-in-progress prefixes, `WIP:` and `[WIP]` by default, matched without regard to case. `pr ready` removes the prefix and leaves the rest of the title as it is; `--undo` adds `WIP:` again. Without a number it uses the open pull request of the checked-out branch. Nothing is sent when the pull request is already in the requested state, and the result says so (`changed: false` with `--json`). A merged or closed pull request is refused (exit 6, `pull_request_not_open`), and so is a title change that would not move the pull request to the requested state because the server uses other draft prefixes; the server's own answer decides, and nothing is sent when the title would stay the same (exit 6, `draft_unchanged`). `pr merge` accepts the pull request once it is ready.
 
 ### Merging
 
@@ -204,7 +204,7 @@ The exit codes are the ones defined by [`@sdlc-tools/core`](../core#exit-codes):
 | -------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `create_blocked`           | A pull request cannot be opened for the branch yet; the reasons are listed.                                  |
 | `pull_request_not_open`    | `pr ready` was asked about a merged or closed pull request.                                                  |
-| `draft_unchanged`          | `pr ready` changed the title, but the server still reads the pull request the old way.                       |
+| `draft_unchanged`          | The title cannot move the pull request to the requested state: the server uses other draft prefixes.         |
 | `merge_blocked`            | The pull request is not mergeable or the merge policy is not met; the reasons are listed.                    |
 | `merge_rejected`           | The server refused the merge (protection rules, a head that moved, a method the repository has not enabled). |
 | `merge_method_not_allowed` | `--method` names a method that `mergeMethods` does not allow (exit 2).                                       |

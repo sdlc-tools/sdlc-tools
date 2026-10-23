@@ -99,13 +99,46 @@ describe('pr ready', () => {
     expect(lab_.forgejo.count(PATCH)).toBe(0);
   });
 
-  it('does not report a change the server did not make', async () => {
-    const lab_ = await lab('WIP: feat: export');
-    lab_.forgejo.ignoreTitleEdits = true;
-    const run = await lab_.run([...ready, '1']);
+  describe('on a server with other draft prefixes', () => {
+    it('does not report a draft the server does not see', async () => {
+      const lab_ = await lab('feat: export');
+      lab_.forgejo.draftPrefixes = ['Draft:'];
+      const run = await lab_.run([...ready, '1', '--undo']);
 
-    expect(run.code).toBe(6);
-    expect(run.stderr).toContain('still reads as a draft');
+      expect(run.code).toBe(6);
+      expect(run.stderr).toContain('cannot make it a draft');
+      expect(run.stdout).toBe('');
+    });
+
+    it('does not report a pull request ready that the server still sees as a draft', async () => {
+      const lab_ = await lab('Draft: feat: export');
+      lab_.forgejo.draftPrefixes = ['Draft:'];
+      const run = await lab_.run([...ready, '1']);
+
+      expect(run.code).toBe(6);
+      expect(run.stderr).toContain('cannot make it ready for review');
+      expect(lab_.forgejo.count(PATCH)).toBe(0);
+    });
+
+    it('sends nothing when the title already carries the prefix it would add', async () => {
+      const lab_ = await lab('WIP: feat: export');
+      lab_.forgejo.draftPrefixes = ['Draft:'];
+      const run = await lab_.run([...ready, '1', '--undo']);
+
+      expect(run.code).toBe(6);
+      expect(lab_.forgejo.count(PATCH)).toBe(0);
+    });
+  });
+
+  it('tells how to name the pull request when no branch can be told', async () => {
+    const lab_ = await lab('WIP: feat: export');
+    lab_.git.branch = undefined;
+    const run = await lab_.run(ready);
+
+    expect(run.code).toBe(2);
+    expect(run.stderr).toContain('Give the pull request number');
+    expect(run.stderr).not.toContain('--head');
+    expect(lab_.forgejo.log).toEqual([]);
   });
 
   it('lets pr merge accept the pull request once it is ready', async () => {

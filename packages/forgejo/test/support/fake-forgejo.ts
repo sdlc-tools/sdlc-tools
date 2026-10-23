@@ -65,8 +65,8 @@ export class FakeForgejo {
   readonly bodies: { route: string; body: unknown }[] = [];
   /** Makes the next merge request fail with this status. */
   failMerge: number | undefined;
-  /** Accepts title edits without applying them, as a server whose draft prefixes differ would appear to. */
-  ignoreTitleEdits = false;
+  /** The title prefixes this server treats as a draft, compared case-insensitively (the server's setting). */
+  draftPrefixes: string[] = ['WIP:', '[WIP]'];
   /** The merge methods the repository has enabled; a request for another one is refused. */
   enabledMergeMethods = new Set(['merge', 'rebase', 'rebase-merge', 'squash', 'fast-forward-only']);
   /** Keeps the head branch after a merge, as a server with a protection rule does. */
@@ -214,6 +214,9 @@ export class FakeForgejo {
       state: pull.state,
       merged: pull.merged,
       mergeable: pull.mergeable,
+      draft: this.draftPrefixes.some((prefix) =>
+        pull.title.toUpperCase().startsWith(prefix.toUpperCase()),
+      ),
       head: {
         // A merged pull request whose branch was deleted no longer names it in `ref`.
         ref: pull.merged ? `refs/pull/${pull.number}/head` : pull.head.ref,
@@ -281,7 +284,7 @@ export class FakeForgejo {
     if (suffix === '' && method === 'GET') return jsonResponse(200, this.#render(pull));
 
     if (suffix === '' && method === 'PATCH') {
-      if (!this.ignoreTitleEdits) pull.title = (body as { title: string }).title;
+      pull.title = (body as { title: string }).title;
       return jsonResponse(201, this.#render(pull));
     }
 

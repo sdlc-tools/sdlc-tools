@@ -151,9 +151,10 @@ export function checkText(title: string, body: string, rules: TextRules): string
   return problems;
 }
 
-// Forgejo has no draft flag; a pull request is a draft while its title starts with one of the
-// server's work-in-progress prefixes, compared case-insensitively. These are the server defaults
-// (`WORK_IN_PROGRESS_PREFIXES = WIP:,[WIP]` under `[repository.pull-request]` in app.ini).
+// A draft is a title that starts with one of the server's work-in-progress prefixes, compared
+// case-insensitively. These are the server defaults (`WORK_IN_PROGRESS_PREFIXES = WIP:,[WIP]` under
+// `[repository.pull-request]` in app.ini); a server may configure others, which is why the API's
+// own `draft` value is preferred and this pattern only edits titles and covers servers that omit it.
 const DRAFT_PREFIX = /^\s*(?:\[WIP\]|WIP:)\s*/i;
 
 export function markDraft(title: string): string {

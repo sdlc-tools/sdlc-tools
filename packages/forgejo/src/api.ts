@@ -79,7 +79,8 @@ function toPullRequest(raw: RawPull): PullRequest {
     body: raw.body ?? '',
     state: raw.state === 'closed' ? 'closed' : 'open',
     merged: raw.merged === true,
-    draft: raw.draft === true || isDraftTitle(title),
+    // The server's own judgement wins: it knows its configured prefixes. Only servers that omit the field fall back to the default ones.
+    draft: raw.draft ?? isDraftTitle(title),
     mergeable: raw.mergeable ?? null,
     head: {
       ref: headBranch(raw.head),
