@@ -155,3 +155,66 @@ describe('token endpoint errors', () => {
     expect(rendered).not.toContain('secret-verifier');
   });
 });
+
+describe('confidential clients', () => {
+  const confidential = { ...client, clientSecret: 'client-secret-value' };
+  const body = (call: { body: string | undefined } | undefined) =>
+    Object.fromEntries(new URLSearchParams(call?.body));
+
+  it('authenticates both grants with the client secret', async () => {
+    const { fetch, runtime: rt } = runtime(() =>
+      jsonResponse(200, { access_token: 'a', refresh_token: 'r2' }),
+    );
+    await exchangeAuthorizationCode(rt, confidential, { code: 'c', redirectUri: 'http://x/cb' });
+    await refreshAccessToken(rt, confidential, 'r1');
+
+    expect(body(fetch.calls[0])).toEqual({
+      grant_type: 'authorization_code',
+      code: 'c',
+      redirect_uri: 'http://x/cb',
+      client_id: 'test-client',
+      client_secret: 'client-secret-value',
+    });
+    expect(body(fetch.calls[1])).toMatchObject({
+      grant_type: 'refresh_token',
+      refresh_token: 'r1',
+      client_secret: 'client-secret-value',
+    });
+  });
+
+  it('sends the secret only to the token endpoint, never as a header or in the address', async () => {
+    const { fetch, runtime: rt } = runtime(() => jsonResponse(200, { access_token: 'a' }));
+    await refreshAccessToken(rt, confidential, 'r1');
+    const [call] = fetch.calls;
+    expect(call?.url.href).toBe(client.tokenEndpoint);
+    expect(JSON.stringify([...(call?.headers ?? [])])).not.toContain('client-secret-value');
+  });
+
+  it('encodes a JSON token request when the client asks for it', async () => {
+    const { fetch, runtime: rt } = runtime(() => jsonResponse(200, { access_token: 'a' }));
+    await refreshAccessToken(rt, { ...confidential, tokenRequestFormat: 'json' }, 'r1');
+    const [call] = fetch.calls;
+    expect(call?.headers.get('content-type')).toBe('application/json');
+    expect(JSON.parse(call?.body ?? '')).toEqual({
+      grant_type: 'refresh_token',
+      refresh_token: 'r1',
+      client_id: 'test-client',
+      client_secret: 'client-secret-value',
+    });
+  });
+
+  it('leaves the secret out for a public client', async () => {
+    const { fetch, runtime: rt } = runtime(() => jsonResponse(200, { access_token: 'a' }));
+    await refreshAccessToken(rt, client, 'r1');
+    expect(body(fetch.calls[0])).not.toHaveProperty('client_secret');
+  });
+
+  it('does not repeat the secret in an error', async () => {
+    const { runtime: rt } = runtime(() =>
+      jsonResponse(403, { error: 'invalid_grant', error_description: 'Unknown or invalid.' }),
+    );
+    const error = await rejection(refreshAccessToken(rt, confidential, 'r1'));
+    expect(error.code).toBe('oauth_invalid_grant');
+    expect(JSON.stringify(error.toJSON())).not.toContain('client-secret-value');
+  });
+});
