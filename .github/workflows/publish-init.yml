@@ -38,9 +38,10 @@ jobs:
 
       - run: pnpm build
 
-      # `pnpm pack` replaces `workspace:*` with the real version in each tarball.
+      # `pnpm pack` replaces `workspace:*` with the real version in each tarball. The
+      # private site package is never published, so it is not packed.
       - name: Pack
-        run: pnpm -r pack --pack-destination "$RUNNER_TEMP/tarballs"
+        run: pnpm -r --filter '!@sdlc-tools/site' pack --pack-destination "$RUNNER_TEMP/tarballs"
 
       - name: Publish
         env:
