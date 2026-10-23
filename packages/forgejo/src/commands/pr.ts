@@ -56,10 +56,10 @@ async function readDescription(
       next: ['Pass --body "<text>", or --body-file <path> (use "-" for standard input).'],
     });
   }
+  // Outside the try: a cancelled read must surface as a cancellation, not as an unreadable file.
+  if (options.bodyFile === '-') return context.stdin.readAll();
   try {
-    return options.bodyFile === '-'
-      ? await context.stdin.readAll()
-      : await ports.readTextFile(options.bodyFile);
+    return await ports.readTextFile(options.bodyFile);
   } catch (cause) {
     throw new CliError('usage', `Cannot read the description from ${options.bodyFile}.`, {
       code: 'description_unreadable',
