@@ -4,7 +4,7 @@ import { en, ko } from './content.js';
 import { tokensCss } from './design/tokens.js';
 import { renderPage } from './page.js';
 
-/** Stylesheets and static files sit next to `src/` and `dist/`, so both locate them alike. */
+/** Stylesheets sit next to `src/` and `dist/`, so both locate them alike. */
 const PACKAGE_ROOT = new URL('../', import.meta.url);
 /** The logos are the repository's own assets, shared with the READMEs. */
 const ASSETS = new URL('../../assets/', PACKAGE_ROOT);

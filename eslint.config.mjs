@@ -129,12 +129,10 @@ export default defineConfig(
     rules: { 'no-restricted-syntax': ['error', ...hardcodedFieldRules] },
   },
   {
-    // Only the build script touches the process and the console: it writes files and
-    // reports where.
+    // Only the build script reports on the console: it writes files and says where.
     files: ['packages/site/src/build.ts'],
     rules: {
       'no-restricted-globals': 'off',
-      'no-restricted-properties': 'off',
     },
   },
   {
