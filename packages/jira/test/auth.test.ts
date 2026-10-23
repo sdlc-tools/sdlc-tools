@@ -229,6 +229,17 @@ describe('auth status', () => {
     expect(run.stdout).toContain('environment');
   });
 
+  it('shows that an API token is in use and that it has no expiry', async () => {
+    const run = await jira(['auth', 'status', '--json'], {
+      fetch: fakeJira({ 'GET /rest/api/3/myself': ME }),
+    });
+    expect(run.json()).toMatchObject({ kind: 'token', email: EMAIL, expiresAt: null });
+    const text = await jira(['auth', 'status'], {
+      fetch: fakeJira({ 'GET /rest/api/3/myself': ME }),
+    });
+    expect(text.stdout).toContain(`as Ada Lovelace (${EMAIL}) with an API token`);
+  });
+
   it('uses the keychain credential, and reports a missing one with exit code 3', async () => {
     const store = new MemorySecretStore();
     const login = await jira(['auth', 'login', '--site', SITE, '--email', EMAIL], {

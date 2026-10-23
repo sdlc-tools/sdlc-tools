@@ -5,6 +5,17 @@ import type { Runtime } from '../runtime.js';
 export interface OAuthClient {
   readonly tokenEndpoint: string;
   readonly clientId: string;
+  /**
+   * Authenticates a confidential client at the token endpoint as the
+   * `client_secret` body parameter (RFC 6749 §2.3.1). Public clients leave it
+   * unset and rely on PKCE instead. It is sent only to `tokenEndpoint`.
+   */
+  readonly clientSecret?: string | undefined;
+  /**
+   * How token requests are encoded: the form body RFC 6749 §4.1.3 specifies by
+   * default, or `json` for servers that document a JSON body.
+   */
+  readonly tokenRequestFormat?: 'form' | 'json' | undefined;
 }
 
 export interface OAuthTokens {
@@ -56,13 +67,18 @@ export function oauthErrorCode(error: unknown): string | undefined {
   return typeof code === 'string' ? code : undefined;
 }
 
-async function postForm(
+async function postToken(
   runtime: TokenRuntime,
   client: OAuthClient,
-  form: Record<string, string>,
+  parameters: Record<string, string>,
   purpose: string,
 ): Promise<OAuthTokens> {
   const endpoint = new URL(client.tokenEndpoint);
+  const fields =
+    client.clientSecret === undefined
+      ? parameters
+      : { ...parameters, client_secret: client.clientSecret };
+  const json = client.tokenRequestFormat === 'json';
   const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   const signal =
     runtime.signal === undefined ? timeout : AbortSignal.any([timeout, runtime.signal]);
@@ -74,9 +90,9 @@ async function postForm(
       method: 'POST',
       headers: {
         Accept: 'application/json',
-        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Type': json ? 'application/json' : 'application/x-www-form-urlencoded',
       },
-      body: new URLSearchParams(form).toString(),
+      body: json ? JSON.stringify(fields) : new URLSearchParams(fields).toString(),
       signal,
     });
     status = response.status;
@@ -166,13 +182,21 @@ function parseTokenResponse(
   };
 }
 
-/** Exchanges an authorization code for tokens (RFC 6749 §4.1.3 with the PKCE verifier of RFC 7636 §4.5). */
+/**
+ * Exchanges an authorization code for tokens (RFC 6749 §4.1.3). A sign-in that
+ * used PKCE proves possession of its verifier (RFC 7636 §4.5); one that did not
+ * leaves `codeVerifier` out.
+ */
 export function exchangeAuthorizationCode(
   runtime: TokenRuntime,
   client: OAuthClient,
-  grant: { readonly code: string; readonly redirectUri: string; readonly codeVerifier: string },
+  grant: {
+    readonly code: string;
+    readonly redirectUri: string;
+    readonly codeVerifier?: string | undefined;
+  },
 ): Promise<OAuthTokens> {
-  return postForm(
+  return postToken(
     runtime,
     client,
     {
@@ -180,7 +204,7 @@ export function exchangeAuthorizationCode(
       code: grant.code,
       redirect_uri: grant.redirectUri,
       client_id: client.clientId,
-      code_verifier: grant.codeVerifier,
+      ...(grant.codeVerifier === undefined ? {} : { code_verifier: grant.codeVerifier }),
     },
     'authorization code',
   );
@@ -195,7 +219,7 @@ export async function refreshAccessToken(
   client: OAuthClient,
   refreshToken: string,
 ): Promise<OAuthTokens> {
-  const tokens = await postForm(
+  const tokens = await postToken(
     runtime,
     client,
     { grant_type: 'refresh_token', refresh_token: refreshToken, client_id: client.clientId },

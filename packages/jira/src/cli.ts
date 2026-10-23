@@ -20,7 +20,7 @@ export const cli = defineCli({
   version: VERSION,
   summary: 'Jira Cloud from the command line, for people and AI agents',
   description: [
-    'Authenticates with an Atlassian API token kept in the OS keychain.',
+    'Signs in with OAuth 2.0 (3LO) in the browser or with an Atlassian API token; credentials are kept in the OS keychain.',
     'Results are short by default; --json prints the complete result as one JSON document.',
   ].join(' '),
   commands: [auth, issue, field],

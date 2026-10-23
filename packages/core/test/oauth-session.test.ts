@@ -211,3 +211,49 @@ describe('OAuthSession', () => {
     ).toHaveLength(2);
   });
 });
+
+describe('OAuthSession for a confidential client', () => {
+  it('renews with the client secret in the encoding the server documents', async () => {
+    const server = new FakeAuthorizationServer({
+      clientSecret: 'client-secret-value',
+      tokenRequestFormat: 'json',
+    });
+    const store = new MemorySecretStore();
+    const credential: OAuthCredential = {
+      kind: 'oauth',
+      accessToken: 'stale',
+      tokenType: 'bearer',
+      refreshToken: 'refresh-0',
+      expiresAt: TEST_NOW,
+    };
+    // Seed a refresh token the server knows by signing in once.
+    const { loginWithPkce } = await import('../src/index.js');
+    const tokens = await loginWithPkce(
+      {
+        fetch: server.fetch.fetch,
+        now: () => TEST_NOW,
+        signal: undefined,
+        openUrl: server.openUrl,
+        log: () => undefined,
+      },
+      { client: server.client, pkce: false, timeoutMs: 2000 },
+    );
+    const session = new OAuthSession({
+      runtime: { fetch: server.fetch.fetch, now: () => TEST_NOW, signal: undefined, store },
+      target: TARGET,
+      client: server.client,
+      credential: { ...credential, refreshToken: tokens.refreshToken },
+    });
+
+    expect(await session.authorization()).toBe('Bearer access-2');
+    expect(server.tokenRequests.at(-1)).toMatchObject({
+      grant_type: 'refresh_token',
+      client_secret: 'client-secret-value',
+    });
+    expect(server.fetch.calls.at(-1)?.headers.get('content-type')).toBe('application/json');
+    expect(await loadStoredCredential({ store }, TARGET)).toMatchObject({
+      accessToken: 'access-2',
+      refreshToken: 'refresh-2',
+    });
+  });
+});

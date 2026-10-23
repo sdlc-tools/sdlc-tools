@@ -10,10 +10,22 @@ export interface AuthorizationRequest {
   readonly clientId: string;
   readonly scope: string | undefined;
   readonly responseType: string;
+  /** Every query parameter of the authorization request, for parameters a server adds such as `audience`. */
+  readonly parameters: Readonly<Record<string, string>>;
 }
 
 export interface FakeAuthorizationServerOptions {
   readonly clientId?: string;
+  /**
+   * Makes the client confidential: token requests must carry this
+   * `client_secret`, and PKCE is not required, as on servers that do not
+   * document it.
+   */
+  readonly clientSecret?: string;
+  /** Refuse token requests that are not encoded this way; both are accepted when unset. */
+  readonly tokenRequestFormat?: 'form' | 'json';
+  readonly authorizationEndpoint?: string;
+  readonly tokenEndpoint?: string;
   readonly expiresInSeconds?: number;
   /** Issue a new refresh token on every refresh and retire the old one. Defaults to true. */
   readonly rotateRefreshTokens?: boolean;
@@ -38,6 +50,8 @@ export class FakeAuthorizationServer {
 
   readonly #expiresIn: number;
   readonly #rotate: boolean;
+  #clientSecret: string | undefined;
+  readonly #tokenRequestFormat: 'form' | 'json' | undefined;
   readonly #codes = new Map<string, AuthorizationRequest>();
   readonly #refreshTokens = new Set<string>();
   #issued = 0;
@@ -46,24 +60,43 @@ export class FakeAuthorizationServer {
   constructor(options: FakeAuthorizationServerOptions = {}) {
     this.client = {
       clientId: options.clientId ?? 'test-client',
-      authorizationEndpoint: 'https://auth.example.test/login/oauth/authorize',
-      tokenEndpoint: 'https://auth.example.test/login/oauth/access_token',
+      ...(options.clientSecret === undefined ? {} : { clientSecret: options.clientSecret }),
+      ...(options.tokenRequestFormat === undefined
+        ? {}
+        : { tokenRequestFormat: options.tokenRequestFormat }),
+      authorizationEndpoint:
+        options.authorizationEndpoint ?? 'https://auth.example.test/login/oauth/authorize',
+      tokenEndpoint: options.tokenEndpoint ?? 'https://auth.example.test/login/oauth/access_token',
     };
     this.#expiresIn = options.expiresInSeconds ?? 3600;
     this.#rotate = options.rotateRefreshTokens ?? true;
+    this.#clientSecret = options.clientSecret;
+    this.#tokenRequestFormat = options.tokenRequestFormat;
     this.fetch = mockFetch((request) => {
       if (request.url.href !== this.client.tokenEndpoint || request.method !== 'POST') {
         return jsonResponse(404, { message: 'not found' });
       }
-      return jsonResponse(
-        ...this.#token(Object.fromEntries(new URLSearchParams(request.body ?? ''))),
-      );
+      const form = this.#parseBody(request);
+      return form === undefined
+        ? jsonResponse(400, {
+            error: 'invalid_request',
+            error_description: `token requests must be ${this.#tokenRequestFormat ?? 'form or json'} encoded`,
+          })
+        : jsonResponse(...this.#token(form));
     });
   }
 
   /** Makes the next token request fail with this response. */
   failNextTokenRequest(status: number, body: unknown): void {
     this.#failNext = { status, body };
+  }
+
+  /**
+   * Simulates regenerating the client secret in the server's console: the old one is refused from
+   * now on. `client` keeps the old secret, as a stale configuration would.
+   */
+  changeClientSecret(secret: string): void {
+    this.#clientSecret = secret;
   }
 
   /** Invalidates every refresh token issued so far. */
@@ -95,6 +128,23 @@ export class FakeAuthorizationServer {
     return { status: response.status, body: await response.text() };
   }
 
+  /** The request parameters, or `undefined` when the body is not encoded the way this server accepts. */
+  #parseBody(request: {
+    readonly headers: Headers;
+    readonly body: string | undefined;
+  }): Record<string, string> | undefined {
+    const format = /\bjson\b/i.test(request.headers.get('content-type') ?? '') ? 'json' : 'form';
+    if (this.#tokenRequestFormat !== undefined && format !== this.#tokenRequestFormat) {
+      return undefined;
+    }
+    if (format === 'form') return Object.fromEntries(new URLSearchParams(request.body ?? ''));
+    try {
+      return JSON.parse(request.body ?? '') as Record<string, string>;
+    } catch {
+      return undefined;
+    }
+  }
+
   #token(form: Record<string, string>): [number, unknown] {
     this.tokenRequests.push(form);
     if (this.#failNext !== undefined) {
@@ -104,6 +154,9 @@ export class FakeAuthorizationServer {
     }
     if (form.client_id !== this.client.clientId) {
       return [401, { error: 'invalid_client', error_description: 'unknown client' }];
+    }
+    if (this.#clientSecret !== undefined && form.client_secret !== this.#clientSecret) {
+      return [401, { error: 'invalid_client', error_description: 'client authentication failed' }];
     }
 
     if (form.grant_type === 'authorization_code') {
@@ -115,9 +168,12 @@ export class FakeAuthorizationServer {
       if (form.redirect_uri !== request.redirectUri) {
         return [400, { error: 'invalid_grant', error_description: 'redirect_uri mismatch' }];
       }
+      // A confidential client authenticated above; PKCE is checked when it asked for it.
+      const pkceRequired = this.#clientSecret === undefined || request.codeChallenge !== '';
       if (
-        form.code_verifier === undefined ||
-        computeCodeChallenge(form.code_verifier) !== request.codeChallenge
+        pkceRequired &&
+        (form.code_verifier === undefined ||
+          computeCodeChallenge(form.code_verifier) !== request.codeChallenge)
       ) {
         return [400, { error: 'invalid_grant', error_description: 'PKCE verification failed' }];
       }
@@ -159,5 +215,6 @@ function parseAuthorizationUrl(url: string): AuthorizationRequest {
     clientId: get('client_id'),
     scope: searchParams.get('scope') ?? undefined,
     responseType: get('response_type'),
+    parameters: Object.fromEntries(searchParams),
   };
 }
