@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -14,7 +14,7 @@ const packageRoot = fileURLToPath(new URL('..', import.meta.url));
 const tsc = fileURLToPath(new URL('../../../node_modules/.bin/tsc', import.meta.url));
 
 const ENTRY = `
-import { HttpClient, defineCli, defineCommand, normalizeServerUrl, runMain } from './dist/index.js';
+import { HttpClient, defineCli, defineCommand, normalizeServerUrl, readSecret, runMain } from './dist/index.js';
 
 const get = defineCommand({
   name: 'get',
@@ -29,7 +29,26 @@ const get = defineCommand({
   },
 });
 
-await runMain(defineCli({ name: 'smoke', version: '9.9.9', summary: 'Smoke test CLI', commands: [get] }));
+const secret = defineCommand({
+  name: 'secret',
+  summary: 'Read a secret and report it',
+  run: async (_input, context) => {
+    const value = await readSecret(context, { label: 'token' });
+    return { data: { value }, text: 'secret=' + value };
+  },
+});
+
+const lines = defineCommand({
+  name: 'lines',
+  summary: 'Count the lines of standard input',
+  run: async (_input, context) => {
+    context.log('reading');
+    const text = await context.stdin.readAll();
+    return { data: {}, text: 'lines=' + text.split('\\n').length };
+  },
+});
+
+await runMain(defineCli({ name: 'smoke', version: '9.9.9', summary: 'Smoke test CLI', commands: [get, secret, lines] }));
 `;
 
 // These tests compile the sources to a temporary directory and run them as a
@@ -70,8 +89,15 @@ describe.skipIf(process.platform === 'win32')('CLI process', { timeout: REAL_TIM
   });
 
   async function cli(...args: string[]) {
+    return cliWithInput(undefined, ...args);
+  }
+
+  /** Runs the CLI with `input` piped to its standard input, which is closed afterwards. */
+  async function cliWithInput(input: string | undefined, ...args: string[]) {
+    const child = run(process.execPath, [join(directory, 'cli.mjs'), ...args]);
+    child.child.stdin?.end(input ?? '');
     try {
-      const { stdout, stderr } = await run(process.execPath, [join(directory, 'cli.mjs'), ...args]);
+      const { stdout, stderr } = await child;
       return { code: 0, stdout, stderr };
     } catch (error) {
       const failure = error as { code: number; stdout: string; stderr: string };
@@ -137,6 +163,42 @@ describe.skipIf(process.platform === 'win32')('CLI process', { timeout: REAL_TIM
     expect(result.stdout).toBe('');
     expect(JSON.parse(result.stderr)).toMatchObject({
       error: { kind: 'not-found', exitCode: 5, status: 404 },
+    });
+  });
+
+  describe('standard input', () => {
+    it('reads a piped secret and drops the trailing line break', async () => {
+      expect(await cliWithInput('tok-123\n', 'secret')).toEqual({
+        code: 0,
+        stdout: 'secret=tok-123\n',
+        stderr: '',
+      });
+    });
+
+    it('fails with exit 2 when nothing is piped in', async () => {
+      const result = await cliWithInput('', 'secret');
+      expect(result.code).toBe(2);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toContain('Standard input was empty: the token is missing.');
+    });
+
+    it('reads input larger than one chunk', async () => {
+      const result = await cliWithInput('x\n'.repeat(100_000), 'lines');
+      expect(result.stdout).toBe('lines=100001\n');
+    });
+
+    it('stops waiting on a pipe when the user cancels', async () => {
+      const child = spawn(process.execPath, [join(directory, 'cli.mjs'), 'lines'], {
+        stdio: ['pipe', 'ignore', 'pipe'],
+      });
+      const exited = new Promise<number | null>((resolve) => child.once('close', resolve));
+      await new Promise<void>((resolve) => {
+        child.stderr.on('data', (chunk: Buffer) => {
+          if (chunk.toString().includes('reading')) resolve();
+        });
+      });
+      child.kill('SIGINT');
+      expect(await exited).toBe(130);
     });
   });
 

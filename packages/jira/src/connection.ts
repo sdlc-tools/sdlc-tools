@@ -143,7 +143,7 @@ export function createHttp(
 
 const REAUTH = [
   `Check that the API token has not expired or been revoked, and that ${EMAIL_ENV} (or the stored e-mail) is the account that owns it.`,
-  `Sign in again with \`${LOGIN_COMMAND}\` after setting ${TOKEN_ENV}.`,
+  `Sign in again with \`${LOGIN_COMMAND}\`, or set ${TOKEN_ENV}.`,
 ];
 
 /** Settings, then credentials, then a client; every failure happens before a request is sent. */

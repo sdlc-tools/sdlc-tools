@@ -4,7 +4,7 @@ English | [한국어](./README.ko.md)
 
 The foundation shared by every sdlc-tools CLI: credentials in the operating system keychain, OAuth 2.0 sign-in with PKCE, an error and exit-code model, an HTTP client that explains failures, and a command layer that implements one output contract for people and AI agents alike.
 
-It is a library. A tool built on it gets the whole contract below by defining its commands, and everything that touches the outside world (environment, streams, `fetch`, keychain, clock) is injected, so a tool can be tested without a network, a keychain or a process.
+It is a library. A tool built on it gets the whole contract below by defining its commands, and everything that touches the outside world (environment, standard input and output, `fetch`, keychain, clock) is injected, so a tool can be tested without a network, a keychain or a process.
 
 Requires Node.js 22.13 or newer. ESM only.
 
@@ -205,6 +205,14 @@ Credentials are kept in the operating system credential store: macOS Keychain, W
 - With no credentials, `resolveCredential` fails with exit code `3` before any request. If the keychain itself is unavailable, the error says why and suggests the environment variable.
 - `bearerAuth` and `basicAuth` build `Authorization` headers; a tool chooses the scheme its server expects.
 
+## Secrets and standard input
+
+`runtime.stdin` is standard input as a command sees it. `isTTY` tells a terminal from a pipe, a file or no input; `readAll()` returns everything up to the end of the input as UTF-8 text; `readHidden(prompt)` writes the prompt to stderr and reads one line typed on a terminal without echoing it. Nothing touches the stream until a command asks, so a command that never reads never waits, and Ctrl-C ends a read that is waiting on a pipe. Library code uses `runtime.stdin` and never `process.stdin` or file descriptor 0.
+
+`readSecret(runtime, { label })` is how a command takes a token from the user. It prompts without echo when standard input is a terminal and reads the pipe or file otherwise. It removes the surrounding whitespace (the line break `echo` adds) and fails with exit code `2`, before any request, when nothing was given or the input is not a single word. The error names what is missing and never repeats the input.
+
+The command decides when to read. `sdlc-jira auth login` takes the token from standard input only when `--with-token` asks for it; otherwise from an environment variable, and on a terminal from the prompt. A caller whose input never ends is therefore never left waiting.
+
 ## OAuth 2.0 sign-in
 
 `loginWithPkce` implements the authorization code grant with PKCE using the `S256` method ([RFC 7636](https://www.rfc-editor.org/rfc/rfc7636)) and a loopback redirect ([RFC 8252](https://www.rfc-editor.org/rfc/rfc8252)).
@@ -234,7 +242,7 @@ Endpoints, client id, scopes and the callback port are always parameters.
 | `MemoryFiles`                                    | An in-memory file reader for configuration files; starts empty, so no test depends on the disk.                                     |
 | `FakeAuthorizationServer`                        | An OAuth server that enforces PKCE verification, single-use codes and refresh-token rotation, and a browser that approves sign-ins. |
 
-By default `execute` uses `forbidFetch`, so a test must say when it expects network traffic, and an empty `MemoryFiles`, so configuration files exist only when a test adds them. Command code reads the files a user points it at, and configuration files, through `runtime.files` rather than `node:fs`, which keeps in-process tests independent of disk and scheduler latency. A package reading its own manifest once at load time is the exception.
+By default `execute` uses `forbidFetch`, so a test must say when it expects network traffic, and an empty `MemoryFiles`, so configuration files exist only when a test adds them. Standard input is empty and not a terminal unless the `stdin` option says otherwise: a string is piped input, and `{ typed: '…' }` makes it a terminal where the person enters that line at the hidden prompt. The prompt appears on stderr and the typed line nowhere, as on a real terminal. Command code reads the files a user points it at, and configuration files, through `runtime.files` rather than `node:fs`, which keeps in-process tests independent of disk and scheduler latency. A package reading its own manifest once at load time is the exception.
 
 ## Security notes
 

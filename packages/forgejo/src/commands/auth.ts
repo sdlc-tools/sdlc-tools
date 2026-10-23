@@ -7,7 +7,6 @@ import {
   saveCredential,
   type OAuthCredential,
 } from '@sdlc-tools/core';
-import type { Ports } from '../ports.js';
 import {
   createApi,
   forgetClientId,
@@ -24,7 +23,7 @@ import { serverOptions } from './shared.js';
 const iso = (ms: number | undefined): string | null =>
   ms === undefined ? null : new Date(ms).toISOString();
 
-export function authGroup(ports: Ports) {
+export function authGroup() {
   const login = defineCommand({
     name: 'login',
     summary: 'Sign in with OAuth, or store a personal access token',
@@ -79,7 +78,7 @@ export function authGroup(ports: Ports) {
 
       if (options.withToken) {
         context.log('Reading the access token from standard input.');
-        const token = (await ports.readStdin()).trim();
+        const token = (await context.stdin.readAll()).trim();
         if (token === '' || /\s/.test(token)) {
           throw new CliError('usage', 'Standard input did not hold a single access token.', {
             code: 'invalid_token_input',

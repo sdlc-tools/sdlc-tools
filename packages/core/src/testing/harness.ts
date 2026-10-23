@@ -1,6 +1,6 @@
 import { runCli } from '../cli.js';
 import type { Cli } from '../command.js';
-import type { Runtime } from '../runtime.js';
+import type { Runtime, StandardInput } from '../runtime.js';
 import { forbidFetch, type MockFetch } from './fetch.js';
 import { MemoryFiles } from './memory-files.js';
 import { MemorySecretStore } from './memory-store.js';
@@ -19,6 +19,12 @@ export interface TestRuntimeOptions {
   readonly openUrl?: (url: string) => Promise<void>;
   readonly signal?: AbortSignal;
   readonly stdoutIsTTY?: boolean;
+  /**
+   * What standard input holds. A string is piped input, which is not a
+   * terminal; `{ typed }` makes it a terminal where the person enters that
+   * line at a hidden prompt. Omitted, it is empty, not a terminal.
+   */
+  readonly stdin?: string | { readonly typed: string };
 }
 
 export interface TestRuntime {
@@ -34,12 +40,37 @@ export interface TestRuntime {
 /** 2026-01-01T00:00:00Z, so token-expiry arithmetic is deterministic. */
 export const TEST_NOW = Date.UTC(2026, 0, 1);
 
+function createTestStdin(
+  input: TestRuntimeOptions['stdin'],
+  stderr: Runtime['stderr'],
+): StandardInput {
+  const typed = typeof input === 'object' ? input.typed : undefined;
+  return {
+    isTTY: typed !== undefined,
+    readAll: () => Promise.resolve(typeof input === 'string' ? input : ''),
+    readHidden: (prompt) => {
+      if (typed === undefined)
+        return Promise.reject(new Error('Standard input is not a terminal.'));
+      // The prompt is shown and the typed line is not, as on a real terminal.
+      stderr.write(`${prompt}\n`);
+      return Promise.resolve(typed);
+    },
+  };
+}
+
 export function createTestRuntime(options: TestRuntimeOptions = {}): TestRuntime {
   let stdout = '';
   let stderr = '';
   const opened: string[] = [];
   const fetch = options.fetch ?? forbidFetch();
   const store = options.store ?? new MemorySecretStore();
+
+  const errorStream: Runtime['stderr'] = {
+    isTTY: false,
+    write: (chunk) => {
+      stderr += chunk;
+    },
+  };
 
   const runtime: Runtime = {
     env: options.env ?? {},
@@ -52,12 +83,8 @@ export function createTestRuntime(options: TestRuntimeOptions = {}): TestRuntime
         stdout += chunk;
       },
     },
-    stderr: {
-      isTTY: false,
-      write: (chunk) => {
-        stderr += chunk;
-      },
-    },
+    stderr: errorStream,
+    stdin: createTestStdin(options.stdin, errorStream),
     fetch: fetch.fetch,
     store,
     files: options.files ?? new MemoryFiles(),

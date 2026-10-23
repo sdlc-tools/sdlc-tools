@@ -44,7 +44,7 @@ Branches are named `<type>/<issue>-<short-slug>`, for example `feat/12-token-ref
 
 ESLint enforces these, so a violation fails `pnpm lint`:
 
-- Library code in `src/` never touches `process` or `console`; it receives a `Runtime` (see `@sdlc-tools/core`). Only `src/main.ts` binds the real process.
+- Library code in `src/` never touches `process` or `console`; it receives a `Runtime` (see `@sdlc-tools/core`). Only `src/main.ts` binds the real process. Standard input is part of the `Runtime`: read it through `runtime.stdin`, and ask the user for a token with `readSecret`, never with `process.stdin` or file descriptor 0.
 - No URL literal and no `customfield_*` id in `src/`: addresses and field ids are configuration.
 - A package imports `@sdlc-tools/core` and no sibling package.
 
