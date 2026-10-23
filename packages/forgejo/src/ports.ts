@@ -29,7 +29,11 @@ export interface Git {
 /** The parts of the outside world that `Runtime` does not carry. */
 export interface Ports {
   readonly git: Git;
-  /** Everything written to standard input, until it ends. */
+  /**
+   * Everything written to standard input, until it ends.
+   * shortcut: only `pr create --body-file -` still reads through this port; `Runtime.stdin` serves
+   * `auth login`. Remove the port once that option reads `context.stdin` too.
+   */
   readStdin(): Promise<string>;
   /** Reads a UTF-8 text file; a relative path is relative to the working directory. */
   readTextFile(path: string): Promise<string>;

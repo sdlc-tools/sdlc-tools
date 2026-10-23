@@ -78,6 +78,7 @@ export class Lab {
       cwd: options.cwd ?? '/work',
       now: () => this.now,
       openUrl: this.oauth.openUrl,
+      stdin: this.stdin,
     });
   }
 }
