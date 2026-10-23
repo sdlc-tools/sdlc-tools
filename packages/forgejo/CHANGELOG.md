@@ -1,5 +1,13 @@
 # @sdlc-tools/forgejo
 
+## 0.2.1
+
+### Patch Changes
+
+- [#40](https://github.com/sdlc-tools/sdlc-tools/pull/40) [`86c67ce`](https://github.com/sdlc-tools/sdlc-tools/commit/86c67ce3be26ead2612377964cf5e6339c18327c) Thanks [@Seungwoo321](https://github.com/Seungwoo321)! - `auth login` explains the "Unregistered Redirect URI" page a confidential OAuth client gets in the browser, both while waiting and when the sign-in times out, and names the two fixes: a public client, or a fixed registered port with `--callback-port`. `loginWithPkce` accepts a `stallHint` for this.
+- Updated dependencies [[`86c67ce`](https://github.com/sdlc-tools/sdlc-tools/commit/86c67ce3be26ead2612377964cf5e6339c18327c)]:
+  - @sdlc-tools/core@0.2.1
+
 ## 0.2.0
 
 ### Minor Changes

@@ -28,6 +28,11 @@ export interface PkceLoginOptions {
   readonly timeoutMs?: number;
   /** Extra authorization request parameters, such as `prompt`. */
   readonly extraParams?: Readonly<Record<string, string>>;
+  /**
+   * What a browser page that never calls back usually means on this server and
+   * how to fix it. Printed while waiting and named as the cause of a timeout.
+   */
+  readonly stallHint?: string;
 }
 
 export type LoginRuntime = Pick<Runtime, 'fetch' | 'now' | 'signal' | 'openUrl'> &
@@ -78,6 +83,7 @@ function listenForCallback(options: {
   readonly path: string;
   readonly state: string;
   readonly timeoutMs: number;
+  readonly stallHint: string | undefined;
   readonly signal: AbortSignal | undefined;
   readonly log: (message: string) => void;
 }): Promise<CallbackListener> {
@@ -214,6 +220,7 @@ function listenForCallback(options: {
             `Sign-in timed out after ${Math.round(options.timeoutMs / 1000)} seconds.`,
             {
               code: 'login_timeout',
+              ...(options.stallHint === undefined ? {} : { causes: [options.stallHint] }),
               next: ['Run the sign-in command again and finish the sign-in in the browser.'],
             },
           ),
@@ -253,6 +260,7 @@ export async function loginWithPkce(
     path: options.callbackPath ?? '/callback',
     state,
     timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    stallHint: options.stallHint,
     signal: runtime.signal,
     log: runtime.log,
   });
@@ -269,6 +277,7 @@ export async function loginWithPkce(
       runtime.log('Could not open a browser automatically; open the address above yourself.');
     });
     runtime.log('Waiting for the sign-in to finish...');
+    if (options.stallHint !== undefined) runtime.log(options.stallHint);
 
     const code = await listener.code;
     return await exchangeAuthorizationCode(runtime, options.client, {

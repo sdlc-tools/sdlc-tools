@@ -14,6 +14,8 @@ import { FakeGit } from './fake-git.js';
 export interface RunOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly cwd?: string;
+  readonly openUrl?: (url: string) => Promise<void>;
+  readonly signal?: AbortSignal;
 }
 
 /** One server, one OAuth provider, one checkout and one keychain, wired to the real command tree. */
@@ -76,7 +78,8 @@ export class Lab {
       env: { SDLC_FORGEJO_HOST: HOST, ...options.env },
       cwd: options.cwd ?? '/work',
       now: () => this.now,
-      openUrl: this.oauth.openUrl,
+      openUrl: options.openUrl ?? this.oauth.openUrl,
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
       stdin: this.stdin,
     });
   }

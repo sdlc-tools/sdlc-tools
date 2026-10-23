@@ -88,6 +88,24 @@ describe('auth login with OAuth', () => {
     expect(lab.fetch.calls).toHaveLength(0);
   });
 
+  it('explains an Unregistered Redirect URI page while waiting for the browser', async () => {
+    const lab = new Lab();
+    const controller = new AbortController();
+    const run = await lab.run(['auth', 'login', '--client-id', 'test-client'], {
+      openUrl: () => {
+        controller.abort();
+        return Promise.resolve();
+      },
+      signal: controller.signal,
+    });
+    expect(run.stderr).toContain('Waiting for the sign-in to finish...');
+    expect(run.stderr).toContain('"Unregistered Redirect URI"');
+    expect(run.stderr).toContain('confidential client');
+    expect(run.stderr).toContain('public client');
+    expect(run.stderr).toContain('http://127.0.0.1:<port>/callback');
+    expect(run.stderr).toContain('--callback-port <port>` with that same port');
+  });
+
   it('takes the client id from the environment', async () => {
     const lab = new Lab();
     const run = await lab.run(['auth', 'login'], {
