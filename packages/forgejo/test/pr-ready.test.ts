@@ -113,8 +113,10 @@ describe('pr ready', () => {
     it('puts the original title back when the edit did not move the state', async () => {
       const lab_ = await lab('feat: export');
       lab_.forgejo.draftPrefixes = ['Draft:'];
-      await lab_.run([...ready, '1', '--undo']);
+      const run = await lab_.run([...ready, '1', '--undo', '--json']);
 
+      expect(run.code).toBe(6);
+      expect(run.errorJson().error.code).toBe('draft_unchanged');
       expect(lab_.forgejo.count(PATCH)).toBe(2);
       expect(lab_.forgejo.pulls[0]?.title).toBe('feat: export');
     });
@@ -123,11 +125,12 @@ describe('pr ready', () => {
       const lab_ = await lab('feat: export');
       lab_.forgejo.draftPrefixes = ['Draft:'];
       lab_.forgejo.failTitleEditFrom = 2;
-      const run = await lab_.run([...ready, '1', '--undo']);
+      const run = await lab_.run([...ready, '1', '--undo', '--json']);
 
       expect(run.code).toBe(6);
+      expect(run.errorJson().error.code).toBe('draft_unchanged');
       expect(run.stderr).toContain('original title could not be restored');
-      expect(run.stderr).toContain('"WIP: feat: export"');
+      expect(run.stderr).toContain('WIP: feat: export');
       expect(lab_.forgejo.pulls[0]?.title).toBe('WIP: feat: export');
     });
 
