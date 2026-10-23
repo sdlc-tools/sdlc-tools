@@ -1,5 +1,16 @@
 # @sdlc-tools/jira
 
+## 0.2.0
+
+### Minor Changes
+
+- [#27](https://github.com/sdlc-tools/sdlc-tools/pull/27) [`555136d`](https://github.com/sdlc-tools/sdlc-tools/commit/555136dccae1b6561acb204103efcf3405000893) Thanks [@Seungwoo321](https://github.com/Seungwoo321)! - `auth login` takes the API token from standard input with `--with-token` and from a prompt that does not echo when run in a terminal, in addition to `SDLC_JIRA_TOKEN`. Empty input fails before any request is sent, and the token never appears in the output, `--json` or an error.
+
+### Patch Changes
+
+- Updated dependencies [[`f3dfbf0`](https://github.com/sdlc-tools/sdlc-tools/commit/f3dfbf0babd73f78adfb928f972d702f5dd562fa)]:
+  - @sdlc-tools/core@0.2.0
+
 ## 0.1.0
 
 ### Minor Changes
