@@ -18,7 +18,7 @@ The logos are copied from the repository `assets/` folder. Open `dist/site/index
 | `src/page.ts`          | The page template, shared by both languages.                                                 |
 | `src/design/tokens.ts` | The design system tokens and the contrast each pair of them must reach.                      |
 | `styles/`              | Element defaults (`base.css`) and components (`components.css`), using semantic tokens only. |
-| `public/`              | Files copied as they are: the logos, from `assets/`.                                         |
+| `src/site.ts`          | Writes the pages, the stylesheet and the logos, copied from the repository `assets/`.        |
 
 ## Design system
 

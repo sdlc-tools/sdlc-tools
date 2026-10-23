@@ -22,7 +22,6 @@ export interface Feature {
  */
 export interface Content {
   readonly lang: Lang;
-  readonly languageName: string;
   readonly title: string;
   readonly description: string;
   readonly skipLink: string;
@@ -72,7 +71,6 @@ export interface Content {
 
 export const en: Content = {
   lang: 'en',
-  languageName: 'English',
   title: 'sdlc-tools: CLIs for people and AI agents',
   description:
     'Command-line tools for the development lifecycle, designed to be used by humans and AI agents alike: short output, --json, local failure, distinct exit codes, translated errors and keychain credentials.',
@@ -185,7 +183,6 @@ export const en: Content = {
 
 export const ko: Content = {
   lang: 'ko',
-  languageName: '한국어',
   title: 'sdlc-tools: 사람과 AI 에이전트를 위한 CLI',
   description:
     '사람과 AI 에이전트가 함께 쓰도록 설계된 개발 생명주기 커맨드라인 도구: 기본은 짧은 출력, --json, 로컬 우선 실패, 의미 있는 종료 코드, 번역된 오류, 키체인 자격 증명.',
