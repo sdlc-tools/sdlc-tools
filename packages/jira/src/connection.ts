@@ -1,17 +1,23 @@
 import {
   CliError,
   HttpClient,
+  OAuthSession,
   basicAuth,
   loadConfigFiles,
   normalizeServerUrl,
   resolveCredential,
   resolveSettings,
+  toolEnvVar,
   type AuthProvider,
   type CommandContext,
+  type CredentialTarget,
+  type OAuthCredential,
   type OptionMap,
+  type ResolvedCredential,
   type ServerUrl,
 } from '@sdlc-tools/core';
 import { JiraClient } from './client.js';
+import { OAUTH_LOGIN_COMMAND, atlassianClient, gatewayBaseUrl, loadOAuthApp } from './oauth.js';
 
 export const TOOL = 'jira';
 export const TOKEN_ENV = 'SDLC_JIRA_TOKEN';
@@ -44,9 +50,19 @@ export interface SiteTarget {
 
 export interface Connection extends SiteTarget {
   readonly client: JiraClient;
-  readonly email: string;
+  readonly kind: 'token' | 'oauth';
+  /** The e-mail address stored with an API token; an OAuth sign-in has none. */
+  readonly email: string | undefined;
   readonly source: 'env' | 'keychain';
+  /** Present for an OAuth sign-in; its credential holds the tokens as renewed by the requests made so far. */
+  readonly session: OAuthSession | undefined;
 }
+
+export const credentialTarget = (target: SiteTarget): CredentialTarget => ({
+  tool: TOOL,
+  origin: target.site.origin,
+  profile: target.profile,
+});
 
 /** The site address decides where credentials are sent, so only the flag, the environment and the user file may set it. */
 export async function resolveSite(
@@ -77,6 +93,58 @@ export async function resolveSite(
     { site: flags.site, profile: flags.profile },
   );
   return { site: normalizeServerUrl(values.site, 'Jira site address'), profile: values.profile };
+}
+
+function validatePort(value: string): string {
+  const port = Number(value);
+  if (!/^\d+$/.test(value) || port < 1 || port > 65_535) {
+    throw new CliError('usage', `"${value}" is not a valid port number.`, {
+      code: 'invalid_port',
+      next: ['Use a number between 1 and 65535.'],
+    });
+  }
+  return value;
+}
+
+export interface OAuthSettings {
+  readonly clientId: string;
+  readonly callbackPort: number;
+}
+
+/**
+ * The OAuth app's client id and the fixed callback port. Atlassian only redirects to the exact
+ * callback URL registered on the app, so both are required. Neither may come from a repository
+ * file: they decide which app receives the sign-in.
+ */
+export async function resolveOAuthSettings(
+  context: CommandContext,
+  flags: { readonly clientId: string | undefined; readonly callbackPort: string | undefined },
+): Promise<OAuthSettings> {
+  const { values } = await resolveSettings(
+    context,
+    TOOL,
+    {
+      clientId: {
+        label: 'OAuth client id',
+        key: 'clientId',
+        env: toolEnvVar(TOOL, 'client_id'),
+        flag: '--client-id',
+        required: true,
+        fromProjectFile: false,
+      },
+      callbackPort: {
+        label: 'sign-in callback port',
+        key: 'callbackPort',
+        env: toolEnvVar(TOOL, 'callback_port'),
+        flag: '--callback-port',
+        required: true,
+        fromProjectFile: false,
+        validate: validatePort,
+      },
+    },
+    flags,
+  );
+  return { clientId: values.clientId, callbackPort: Number(values.callbackPort) };
 }
 
 const PROJECT_KEY = /^[A-Za-z][A-Za-z0-9_]*$/;
@@ -125,11 +193,13 @@ export async function resolveProject(
   return values.project;
 }
 
+/** `server` names the site in error messages when `baseUrl` is not the site itself, as with the OAuth gateway. */
 export function createHttp(
   context: CommandContext,
   baseUrl: string,
   authorization: AuthProvider,
   reauth: readonly string[],
+  server?: string,
 ): HttpClient {
   return new HttpClient({
     baseUrl,
@@ -137,7 +207,7 @@ export function createHttp(
     signal: context.signal,
     auth: authorization,
     userAgent: 'sdlc-jira',
-    context: { reauth },
+    context: { reauth, ...(server === undefined ? {} : { server }) },
   });
 }
 
@@ -146,22 +216,85 @@ const REAUTH = [
   `Sign in again with \`${LOGIN_COMMAND}\`, or set ${TOKEN_ENV}.`,
 ];
 
+export const OAUTH_REAUTH = [
+  `Sign in again with \`${OAUTH_LOGIN_COMMAND}\`.`,
+  'If it keeps failing, check that the OAuth app still has the Jira scopes and that your access to the app was not revoked.',
+];
+
+/** The credential to use. With none, the way to sign in with OAuth is named next to the API token ones. */
+async function findCredential(
+  context: CommandContext,
+  target: SiteTarget,
+): Promise<ResolvedCredential> {
+  try {
+    return await resolveCredential(context, {
+      ...credentialTarget(target),
+      tokenEnv: TOKEN_ENV,
+      usernameEnv: EMAIL_ENV,
+      loginCommand: LOGIN_COMMAND,
+    });
+  } catch (error) {
+    if (error instanceof CliError && error.code === 'no_credentials') {
+      throw error.with({
+        next: [...error.next, `Or sign in with OAuth using \`${OAUTH_LOGIN_COMMAND}\`.`],
+      });
+    }
+    throw error;
+  }
+}
+
+/** A client over the Atlassian API gateway, authenticated by the stored OAuth sign-in and renewing it as needed. */
+async function connectWithOAuth(
+  context: CommandContext,
+  target: SiteTarget,
+  credential: OAuthCredential,
+): Promise<Connection> {
+  const owner = credentialTarget(target);
+  const app = await loadOAuthApp(context, owner);
+  if (app === undefined) {
+    throw new CliError('auth', 'The stored OAuth sign-in is incomplete.', {
+      code: 'oauth_app_missing',
+      causes: ['The client secret or the site it belongs to is missing from the keychain.'],
+      next: [`Sign in again with \`${OAUTH_LOGIN_COMMAND}\`.`],
+    });
+  }
+  const session = new OAuthSession({
+    runtime: context,
+    target: owner,
+    client: atlassianClient(app),
+    credential,
+    loginCommand: OAUTH_LOGIN_COMMAND,
+  });
+  const http = createHttp(
+    context,
+    gatewayBaseUrl(app.cloudId),
+    session,
+    OAUTH_REAUTH,
+    target.site.host,
+  );
+  return {
+    ...target,
+    client: new JiraClient(http, target.site.baseUrl),
+    kind: 'oauth',
+    email: undefined,
+    source: 'keychain',
+    session,
+  };
+}
+
 /** Settings, then credentials, then a client; every failure happens before a request is sent. */
 export async function connect(
   context: CommandContext,
   flags: ConnectionFlags,
 ): Promise<Connection> {
   const target = await resolveSite(context, flags);
-  const { credential, source } = await resolveCredential(context, {
-    tool: TOOL,
-    origin: target.site.origin,
-    profile: target.profile,
-    tokenEnv: TOKEN_ENV,
-    usernameEnv: EMAIL_ENV,
-    loginCommand: LOGIN_COMMAND,
-  });
+  const resolved = await findCredential(context, target);
+  if (resolved.credential.kind === 'oauth') {
+    return connectWithOAuth(context, target, resolved.credential);
+  }
 
-  if (credential.kind !== 'token' || credential.username === undefined) {
+  const { credential, source } = resolved;
+  if (credential.username === undefined) {
     throw new CliError('auth', 'Jira needs an e-mail address together with the API token.', {
       code: 'missing_email',
       next: [`Set ${EMAIL_ENV} next to ${TOKEN_ENV}.`, `Or store both with \`${LOGIN_COMMAND}\`.`],
@@ -177,8 +310,10 @@ export async function connect(
   return {
     ...target,
     client: new JiraClient(http, target.site.baseUrl),
+    kind: 'token',
     email: credential.username,
     source,
+    session: undefined,
   };
 }
 

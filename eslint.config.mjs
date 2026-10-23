@@ -120,6 +120,13 @@ export default defineConfig(
     rules: { 'no-restricted-syntax': ['error', ...hardcodedFieldRules] },
   },
   {
+    // The Atlassian Cloud OAuth 2.0 (3LO) endpoints are fixed by Atlassian and the same for every
+    // site, so they are protocol constants like the loopback redirect above. The Jira site itself
+    // stays configuration.
+    files: ['packages/jira/src/oauth.ts'],
+    rules: { 'no-restricted-syntax': ['error', ...hardcodedFieldRules] },
+  },
+  {
     // Test doubles use reserved `.test` addresses that resolve nowhere.
     files: ['packages/*/src/testing/**/*.ts'],
     rules: { 'no-restricted-syntax': ['error', ...hardcodedFieldRules] },

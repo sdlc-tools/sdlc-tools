@@ -138,7 +138,7 @@ export const en: Content = {
       core: 'The foundation: keychain credentials, OAuth 2.0 PKCE sign-in, the error and exit-code model, an HTTP client that explains failures, and the output contract. Build your own tool on it.',
       forgejo:
         'Pull requests on Forgejo and Gitea. Sign in with OAuth or a token, open and review pull requests, merge under a policy of statuses, approvals and merge method, and clean up branches.',
-      jira: 'Jira Cloud from the terminal. Search, view, create, edit, transition, assign and comment on issues, and log work, with an API token in the keychain.',
+      jira: 'Jira Cloud from the terminal. Search, view, create, edit, transition, assign and comment on issues, and log work. Sign in with OAuth or an API token, kept in the keychain.',
     },
     kind: { library: 'Library', tool: 'Command' },
     readme: 'README',
@@ -249,7 +249,7 @@ export const ko: Content = {
       core: '도구들의 기반: 키체인 자격 증명, OAuth 2.0 PKCE 로그인, 오류·종료 코드 모델, 실패를 설명하는 HTTP 클라이언트, 출력 규약. 이 위에 직접 도구를 만들 수 있습니다.',
       forgejo:
         'Forgejo·Gitea 풀 리퀘스트. OAuth 또는 토큰으로 로그인하고, 풀 리퀘스트를 열고 리뷰하며, 상태·승인·머지 방식의 정책에 따라 머지하고, 브랜치를 정리합니다.',
-      jira: '터미널에서 쓰는 Jira Cloud. 이슈 검색·조회·생성·수정·전환·담당자 지정·코멘트와 작업 시간 기록을 API 토큰을 키체인에 두고 처리합니다.',
+      jira: '터미널에서 쓰는 Jira Cloud. 이슈 검색·조회·생성·수정·전환·담당자 지정·코멘트와 작업 시간 기록을 처리합니다. OAuth 또는 API 토큰으로 로그인하며 자격 증명은 키체인에 둡니다.',
     },
     kind: { library: '라이브러리', tool: '커맨드' },
     readme: 'README',
