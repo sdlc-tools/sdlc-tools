@@ -57,6 +57,18 @@ const hardcodedFieldRules = [
   },
 ];
 
+const restrictedGlobals = [
+  {
+    name: 'process',
+    message:
+      'Library code receives its environment through Runtime; only src/main.ts binds the process.',
+  },
+  {
+    name: 'console',
+    message: 'Write through Runtime.stdout / Runtime.stderr so output stays testable.',
+  },
+];
+
 export default defineConfig(
   { ignores: ['**/dist/**', '**/coverage/**', '**/node_modules/**', 'pnpm-lock.yaml'] },
 
@@ -86,18 +98,7 @@ export default defineConfig(
   {
     files: ['packages/*/src/**/*.ts'],
     rules: {
-      'no-restricted-globals': [
-        'error',
-        {
-          name: 'process',
-          message:
-            'Library code receives its environment through Runtime; only src/main.ts binds the process.',
-        },
-        {
-          name: 'console',
-          message: 'Write through Runtime.stdout / Runtime.stderr so output stays testable.',
-        },
-      ],
+      'no-restricted-globals': ['error', ...restrictedGlobals],
       'no-restricted-properties': [
         'error',
         {
@@ -132,7 +133,7 @@ export default defineConfig(
     // Only the build script reports on the console: it writes files and says where.
     files: ['packages/site/src/build.ts'],
     rules: {
-      'no-restricted-globals': 'off',
+      'no-restricted-globals': ['error', ...restrictedGlobals.filter((g) => g.name !== 'console')],
     },
   },
   {
