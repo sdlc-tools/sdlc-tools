@@ -63,7 +63,7 @@ Atlassian 은 커맨드라인 도구가 혼자서 로그인하도록 허용하�
 3. **Permissions**, 그리고 Jira API 옆의 **Add**: classic 스코프 `read:jira-work`, `write:jira-work`, `read:jira-user` 를 줍니다.
 4. **Settings** 에 client id 와 client secret 이 있습니다. **Distribution** 은 건드리지 마세요. 공유를 켜기 전까지 앱은 비공개입니다.
 
-**2. client id 와 포트 설정** — `~/.config/sdlc-tools/config.json` 에 넣습니다([설정](#설정) 참고). 다른 설정과 마찬가지로 포트도 문자열입니다.
+**2. client id 와 포트 설정** — 첫 로그인에 필요하며 `~/.config/sdlc-tools/config.json` 에 넣습니다([설정](#설정) 참고). 다른 설정과 마찬가지로 포트도 문자열입니다.
 
 ```json
 {
@@ -81,13 +81,17 @@ Atlassian 은 커맨드라인 도구가 혼자서 로그인하도록 허용하�
 sdlc-jira auth login --oauth
 ```
 
+파일 대신 `--client-id <id> --callback-port <port>` 를 주거나 `SDLC_JIRA_CLIENT_ID`, `SDLC_JIRA_CALLBACK_PORT` 를 설정해도 됩니다. client id 는 개발자 콘솔에서 앱의 **Settings** 에, 포트는 **Authorization** 의 callback URL 에 있습니다.
+
 스크립트에서는 `--client-secret-stdin` 으로 secret 을 파이프로 넘기세요.
 
 ```sh
 <secret 을 출력하는 커맨드> | sdlc-jira auth login --oauth --client-secret-stdin
 ```
 
-secret 은 한 번만 주면 됩니다. 키체인이 보관하고, 같은 client id 로 하는 이후 로그인(예: 리프레시 토큰이 만료된 뒤)은 묻지 않고 그 secret 을 다시 씁니다. 다시 묻는 경우는 저장된 secret 이 없을 때, 설정한 client id 가 다른 앱의 것일 때, 그리고 `--client-secret-stdin` 을 줄 때뿐이며, 이 플래그는 새 secret 을 기존 것 대신 저장합니다. 개발자 콘솔에서 secret 을 다시 발급한 뒤에 쓰세요. 저장된 secret 이 거부되면 오류가 그렇게 알려 줍니다.
+앱 정보는 한 번만 주면 됩니다. 키체인이 client id, callback 포트, client secret 을 보관하므로, 이후 로그인(예: 리프레시 토큰이 만료된 뒤)은 플래그도 설정도 질문도 없이 `sdlc-jira auth login --oauth` 만으로 됩니다. 플래그, 환경 변수, 사용자 파일은 저장된 값보다 여전히 우선합니다. 이전 버전이 저장한 앱에는 포트가 없으므로, `--callback-port` 나 `callbackPort` 설정으로 한 번 주면 그것도 저장됩니다. 저장된 앱도 client id 도 없으면 아무것도 보내기 전에 실패합니다.
+
+secret 을 다시 묻는 경우는 저장된 secret 이 없을 때, 플래그나 설정의 client id 가 다른 앱의 것일 때, 그리고 `--client-secret-stdin` 을 줄 때뿐이며, 이 플래그는 새 secret 을 기존 것 대신 저장합니다. 개발자 콘솔에서 secret 을 다시 발급한 뒤에 쓰세요. 저장된 secret 이 거부되면 오류가 그렇게 알려 줍니다.
 
 브라우저에 Atlassian 동의 화면이 열리고, 거기서 사이트를 고르고 승인합니다. 이어서 커맨드는 허용한 사이트 가운데 설정한 사이트를 찾고(다른 사이트를 골랐다면 허용된 사이트를 알려 주고 아무것도 저장하지 않은 채 멈춥니다), API 로 로그인을 확인한 뒤, 토큰과 client secret, 사이트의 cloud id 를 키체인에 저장합니다.
 
@@ -97,11 +101,11 @@ secret 은 한 번만 주면 됩니다. 키체인이 보관하고, 같은 client
 - `auth login --oauth` 는 이전 로그인을 대체합니다. API 토큰으로 로그인하면 OAuth 로그인이 대체되고 그 client secret 도 삭제됩니다. `auth logout` 은 둘 다 삭제합니다. `SDLC_JIRA_TOKEN` 이 설정되어 있으면 여전히 키체인보다 우선합니다.
 - OAuth 로그인에는 같은 머신의 키체인과 브라우저가 필요하고, 승인하는 동안 callback 포트가 비어 있어야 합니다. 그렇지 않은 환경에서는 API 토큰을 쓰세요.
 
-| 커맨드        | 용도                                                                                                                               |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `auth login`  | API 토큰을 확인하고 저장. `--oauth` 를 주면 브라우저로 로그인                                                                      |
-| `auth status` | 현재 자격 증명이 어느 계정의 것인지, 어떻게 로그인했는지(`oauth` 또는 `token`)와 어디서 왔는지, OAuth 액세스 토큰의 만료 시각 표시 |
-| `auth logout` | 사이트에 저장된 자격 증명 삭제. OAuth client secret 도 함께 삭제                                                                   |
+| 커맨드        | 용도                                                                                                                                               |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `auth login`  | API 토큰을 확인하고 저장. `--oauth` 를 주면 브라우저로 로그인                                                                                      |
+| `auth status` | 현재 자격 증명이 어느 계정의 것인지, 어떻게 로그인했는지(`oauth` 또는 `token`)와 어디서 왔는지, OAuth 는 client id 와 액세스 토큰의 만료 시각 표시 |
+| `auth logout` | 사이트에 저장된 자격 증명 삭제. OAuth client secret 도 함께 삭제                                                                                   |
 
 ## 설정
 
@@ -133,7 +137,7 @@ secret 은 한 번만 주면 됩니다. 키체인이 보관하고, 같은 client
 ```
 
 - 사이트는 자격 증명이 전송되는 곳을, client id 와 callback 포트는 로그인을 받는 OAuth 앱을 정하므로, 저장소의 `.sdlc-tools.json` 은 이 중 어느 것도 설정할 수 없습니다.
-- `clientId` 와 `callbackPort` 는 `auth login --oauth` 에서만 쓰이며 둘 다 필수입니다. 하나라도 없으면 아무것도 보내기 전에 실패하고 어디에 설정하는지 알려 줍니다.
+- `clientId` 와 `callbackPort` 는 `auth login --oauth` 에서만 쓰이며 둘 다 필수입니다. 플래그, 환경 변수, 사용자 파일, 마지막으로 이전 로그인이 저장한 앱 순으로 찾으며, 하나라도 없으면 아무것도 보내기 전에 실패하고 어디에 설정하는지 알려 줍니다.
 - 설정 파일에는 토큰, 비밀번호, client secret 을 넣을 수 없으며, 들어 있으면 파일을 거부합니다.
 - `fields` 는 직접 정한 짧은 이름을 필드 id 에 연결합니다([커스텀 필드](#커스텀-필드) 참고).
 - `workflow` 는 이슈가 거치는 순서대로 워크플로우의 상태를 나열합니다([상태까지 이동](#상태까지-이동) 참고).

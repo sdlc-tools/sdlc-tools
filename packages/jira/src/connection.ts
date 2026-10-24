@@ -18,7 +18,13 @@ import {
   type ServerUrl,
 } from '@sdlc-tools/core';
 import { JiraClient } from './client.js';
-import { OAUTH_LOGIN_COMMAND, atlassianClient, gatewayBaseUrl, loadOAuthApp } from './oauth.js';
+import {
+  OAUTH_LOGIN_COMMAND,
+  atlassianClient,
+  gatewayBaseUrl,
+  loadOAuthApp,
+  type OAuthApp,
+} from './oauth.js';
 
 export const TOOL = 'jira';
 export const TOKEN_ENV = 'SDLC_JIRA_TOKEN';
@@ -55,6 +61,8 @@ export interface Connection extends SiteTarget {
   /** The e-mail address stored with an API token; an OAuth sign-in has none. */
   readonly email: string | undefined;
   readonly source: 'env' | 'keychain';
+  /** The client id of the OAuth app behind an OAuth sign-in; never its secret. */
+  readonly clientId: string | undefined;
   /** Present for an OAuth sign-in; its credential holds the tokens as renewed by the requests made so far. */
   readonly session: OAuthSession | undefined;
 }
@@ -103,38 +111,64 @@ export interface OAuthSettings {
 
 /**
  * The OAuth app's client id and the fixed callback port. Atlassian only redirects to the exact
- * callback URL registered on the app, so both are required. Neither may come from a repository
- * file: they decide which app receives the sign-in.
+ * callback URL registered on the app, so both are required. They come from the flag, the
+ * environment, the user file, then the app stored by an earlier sign-in; none may come from a
+ * repository file: they decide which app receives the sign-in.
  */
 export async function resolveOAuthSettings(
   context: CommandContext,
   flags: { readonly clientId: string | undefined; readonly callbackPort: string | undefined },
+  stored: OAuthApp | undefined,
 ): Promise<OAuthSettings> {
-  const { values } = await resolveSettings(
-    context,
-    TOOL,
-    {
-      clientId: {
-        label: 'OAuth client id',
-        key: 'clientId',
-        env: toolEnvVar(TOOL, 'client_id'),
-        flag: '--client-id',
-        required: true,
-        fromProjectFile: false,
+  try {
+    const { values: app } = await resolveSettings(
+      context,
+      TOOL,
+      {
+        clientId: {
+          label: 'OAuth client id',
+          key: 'clientId',
+          env: toolEnvVar(TOOL, 'client_id'),
+          flag: '--client-id',
+          required: true,
+          fromProjectFile: false,
+          ...(stored === undefined ? {} : { default: stored.clientId }),
+        },
       },
-      callbackPort: {
-        label: 'sign-in callback port',
-        key: 'callbackPort',
-        env: toolEnvVar(TOOL, 'callback_port'),
-        flag: '--callback-port',
-        required: true,
-        fromProjectFile: false,
-        validate: validatePort,
+      { clientId: flags.clientId },
+    );
+    // The stored port belongs to the stored app: another app's callback URL registers its own.
+    const storedPort = app.clientId === stored?.clientId ? stored.callbackPort : undefined;
+    const { values } = await resolveSettings(
+      context,
+      TOOL,
+      {
+        callbackPort: {
+          label: 'sign-in callback port',
+          key: 'callbackPort',
+          env: toolEnvVar(TOOL, 'callback_port'),
+          flag: '--callback-port',
+          required: true,
+          fromProjectFile: false,
+          validate: validatePort,
+          ...(storedPort === undefined ? {} : { default: String(storedPort) }),
+        },
       },
-    },
-    flags,
-  );
-  return { clientId: values.clientId, callbackPort: Number(values.callbackPort) };
+      { callbackPort: flags.callbackPort },
+    );
+    return { clientId: app.clientId, callbackPort: Number(values.callbackPort) };
+  } catch (error) {
+    if (error instanceof CliError && error.code === 'missing_setting') {
+      throw error.with({
+        next: [
+          ...error.next,
+          `Find the client id under Settings of the app, and the port in its callback URL under Authorization, in the Atlassian developer console (developer.atlassian.com, then your app).`,
+          'Once a sign-in has succeeded they are remembered, and later sign-ins need neither.',
+        ],
+      });
+    }
+    throw error;
+  }
 }
 
 const PROJECT_KEY = /^[A-Za-z][A-Za-z0-9_]*$/;
@@ -267,6 +301,7 @@ async function connectWithOAuth(
     client: new JiraClient(http, target.site.baseUrl),
     kind: 'oauth',
     email: undefined,
+    clientId: app.clientId,
     source: 'keychain',
     session,
   };
@@ -303,6 +338,7 @@ export async function connect(
     kind: 'token',
     email: credential.username,
     source,
+    clientId: undefined,
     session: undefined,
   };
 }
