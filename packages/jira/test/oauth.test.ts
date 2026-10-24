@@ -87,6 +87,7 @@ describe('auth login --oauth', () => {
       clientId: CLIENT_ID,
       clientSecret: CLIENT_SECRET,
       cloudId: CLOUD_ID,
+      callbackPort: lab.port,
     });
     expectNoSecrets(run);
   });
@@ -188,6 +189,95 @@ describe('auth login --oauth again', () => {
     expect(typed.stdout + typed.stderr).not.toContain('never-read-secret');
   });
 
+  it('signs in again with no flags and no configuration, asking nothing', async () => {
+    await lab.signIn();
+    lab.fetch.calls.length = 0;
+
+    const run = await lab.run(['auth', 'login', '--oauth'], { stdin: '' });
+
+    expect(run.code, run.stderr).toBe(0);
+    expect(run.stderr).not.toContain('Client secret:');
+    expect(lab.auth.authorizations.at(-1)?.parameters).toMatchObject({
+      client_id: CLIENT_ID,
+      redirect_uri: `http://127.0.0.1:${lab.port}/callback`,
+    });
+    expect(lab.auth.tokenRequests.at(-1)).toMatchObject({ client_secret: CLIENT_SECRET });
+    expectNoSecrets(run);
+  });
+
+  it.each([
+    ['a flag', ['--callback-port'], {}, false],
+    ['the environment', [], { SDLC_JIRA_CALLBACK_PORT: '' }, false],
+    ['the user file', [], {}, true],
+  ] as const)(
+    'takes the callback port from %s before the stored one',
+    async (_name, flag, env, file) => {
+      await lab.signIn();
+      const stored = JSON.parse((await lab.store.get(APP_ACCOUNT)) ?? '') as Record<
+        string,
+        unknown
+      >;
+      // A stored port nothing listens on: using it would never reach the callback.
+      await lab.store.set(APP_ACCOUNT, JSON.stringify({ ...stored, callbackPort: 1 }));
+      const port = String(lab.port);
+      if (file) lab.files.set(USER_CONFIG, JSON.stringify({ jira: { callbackPort: port } }));
+
+      const run = await lab.run(
+        ['auth', 'login', '--oauth', ...flag.map((f) => [f, port]).flat()],
+        {
+          env: Object.fromEntries(Object.keys(env).map((key) => [key, port])),
+          stdin: '',
+        },
+      );
+
+      expect(run.code, run.stderr).toBe(0);
+      expect(JSON.parse((await lab.store.get(APP_ACCOUNT)) ?? '')).toMatchObject({
+        callbackPort: lab.port,
+      });
+    },
+  );
+
+  it('keeps the new port with the app for the sign-in after', async () => {
+    await lab.signIn();
+    const stored = JSON.parse((await lab.store.get(APP_ACCOUNT)) ?? '') as Record<string, unknown>;
+    // An older record has no port.
+    delete stored.callbackPort;
+    await lab.store.set(APP_ACCOUNT, JSON.stringify(stored));
+
+    const without = await lab.run(['auth', 'login', '--oauth'], { stdin: '' });
+    expect(without.code).toBe(2);
+    expect(without.stderr).toContain('Missing sign-in callback port.');
+    expect(without.stderr).toContain('developer.atlassian.com');
+
+    const withPort = await lab.run(
+      ['auth', 'login', '--oauth', '--callback-port', String(lab.port)],
+      {
+        stdin: '',
+      },
+    );
+    expect(withPort.code, withPort.stderr).toBe(0);
+    expect(JSON.parse((await lab.store.get(APP_ACCOUNT)) ?? '')).toMatchObject({
+      callbackPort: lab.port,
+    });
+
+    const again = await lab.run(['auth', 'login', '--oauth'], { stdin: '' });
+    expect(again.code, again.stderr).toBe(0);
+  });
+
+  it('does not lend the stored callback port to another app', async () => {
+    await lab.signIn();
+    lab.fetch.calls.length = 0;
+
+    const run = await lab.run(['auth', 'login', '--oauth', '--client-id', 'another-app'], {
+      stdin: '',
+    });
+
+    expect(run.code).toBe(2);
+    expect(run.stderr).toContain('Missing sign-in callback port.');
+    expect(lab.fetch.calls).toHaveLength(0);
+    expect(lab.auth.authorizations).toHaveLength(1);
+  });
+
   it('signs in again after the refresh token expired, without the secret', async () => {
     await lab.signIn();
     lab.now = TEST_NOW + 91 * 24 * HOUR;
@@ -272,6 +362,15 @@ describe('auth login --oauth again', () => {
 });
 
 describe('auth login --oauth fails locally', () => {
+  it('names the developer console when there is no client id to be found anywhere', async () => {
+    const run = await lab.run(['auth', 'login', '--oauth', '--callback-port', '8766']);
+
+    expect(run.code).toBe(2);
+    expect(run.stderr).toContain('Missing OAuth client id.');
+    expect(run.stderr).toContain('developer.atlassian.com');
+    expect(run.fetchCalls).toHaveLength(0);
+  });
+
   const noRequest = (run: { fetchCalls: readonly unknown[]; stdout: string }) => {
     expect(run.fetchCalls).toHaveLength(0);
     expect(run.stdout).toBe('');
@@ -660,7 +759,7 @@ describe('auth status and logout with an OAuth sign-in', () => {
     await lab.signIn();
     const text = await lab.run(['auth', 'status']);
     expect(text.stdout).toBe(
-      `Signed in to team.example.test as Ada Lovelace with OAuth (access token valid until ${new Date(TEST_NOW + HOUR).toISOString()}, renewed automatically), credentials from the keychain.\n`,
+      `Signed in to team.example.test as Ada Lovelace with OAuth (client id ${CLIENT_ID}, access token valid until ${new Date(TEST_NOW + HOUR).toISOString()}, renewed automatically), credentials from the keychain.\n`,
     );
 
     const json = await lab.run(['auth', 'status', '--json']);
@@ -672,6 +771,7 @@ describe('auth status and logout with an OAuth sign-in', () => {
       displayName: ME.displayName,
       email: ME.emailAddress,
       source: 'keychain',
+      clientId: CLIENT_ID,
       expiresAt: new Date(TEST_NOW + HOUR).toISOString(),
     });
     expectNoSecrets(json);

@@ -63,7 +63,7 @@ Atlassian does not let a command-line tool sign in on its own: every OAuth app h
 3. **Permissions**, then **Add** next to the Jira API, and give it the classic scopes `read:jira-work`, `write:jira-work` and `read:jira-user`.
 4. **Settings** shows the client id and the client secret. Leave **Distribution** alone: an app is private until you turn sharing on.
 
-**2. Configure the client id and the port** in `~/.config/sdlc-tools/config.json` (see [Configuration](#configuration)). The port is a string, like every setting:
+**2. Configure the client id and the port** for the first sign-in, in `~/.config/sdlc-tools/config.json` (see [Configuration](#configuration)). The port is a string, like every setting:
 
 ```json
 {
@@ -81,13 +81,17 @@ Atlassian does not let a command-line tool sign in on its own: every OAuth app h
 sdlc-jira auth login --oauth
 ```
 
+Instead of the file you can pass `--client-id <id> --callback-port <port>` or set `SDLC_JIRA_CLIENT_ID` and `SDLC_JIRA_CALLBACK_PORT`. The client id is under **Settings** of the app in the developer console, and the port is the one in its callback URL under **Authorization**.
+
 From a script, pipe the secret in with `--client-secret-stdin`:
 
 ```sh
 <command that prints the secret> | sdlc-jira auth login --oauth --client-secret-stdin
 ```
 
-You give the secret once. The keychain keeps it, and every later sign-in for the same client id, such as the one after a refresh token expired, reuses it without asking. The secret is asked for again only when none is stored, when the configured client id belongs to another app, or when you pass `--client-secret-stdin`, which stores the new secret in place of the old one. Use that after you regenerate the secret in the developer console; if the stored secret is refused, the error tells you so.
+You give the app once. The keychain keeps its client id, callback port and client secret, so every later sign-in, such as the one after a refresh token expired, is just `sdlc-jira auth login --oauth`: no flag, no configuration, no question. A flag, the environment variable or the user file still takes precedence over what is stored. An app stored by an earlier version has no port; give it with `--callback-port` or the `callbackPort` setting once and it is stored too. Without a stored app or a client id, the command fails before anything is sent.
+
+The secret is asked for again only when none is stored, when the configured client id belongs to another app, or when you pass `--client-secret-stdin`, which stores the new secret in place of the old one. Use that after you regenerate the secret in the developer console; if the stored secret is refused, the error tells you so.
 
 Your browser opens Atlassian's consent screen, where you choose the site and approve. The command then finds the site among the ones you allowed (if you chose another one it stops, names the allowed sites and stores nothing), checks the sign-in against the API, and stores the tokens, the client secret and the site's cloud id in the keychain.
 
@@ -97,11 +101,11 @@ Your browser opens Atlassian's consent screen, where you choose the site and app
 - `auth login --oauth` replaces an earlier sign-in; signing in with an API token replaces an OAuth sign-in and removes its client secret. `auth logout` removes both. `SDLC_JIRA_TOKEN` still wins over the keychain when it is set.
 - OAuth sign-in needs a keychain and a browser on the same machine, and the callback port free while you approve. For anything else use an API token.
 
-| Command       | Purpose                                                                                                                                             |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `auth login`  | Verify an API token and store it, or with `--oauth` sign in through the browser                                                                     |
-| `auth status` | Show which account the current credentials belong to, how you signed in (`oauth` or `token`) and from where, and when an OAuth access token expires |
-| `auth logout` | Remove the stored credentials for a site, including an OAuth client secret                                                                          |
+| Command       | Purpose                                                                                                                                                                    |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `auth login`  | Verify an API token and store it, or with `--oauth` sign in through the browser                                                                                            |
+| `auth status` | Show which account the current credentials belong to, how you signed in (`oauth` or `token`) and from where, and for OAuth the client id and when the access token expires |
+| `auth logout` | Remove the stored credentials for a site, including an OAuth client secret                                                                                                 |
 
 ## Configuration
 
@@ -133,7 +137,7 @@ Nothing about your site is built into the tool. Each setting comes from, in orde
 ```
 
 - The site decides where your credentials are sent, and the client id and callback port decide which OAuth app receives a sign-in, so a repository's `.sdlc-tools.json` cannot set any of them.
-- `clientId` and `callbackPort` are only used by `auth login --oauth`, and both are required for it. A missing one fails before anything is sent and names where to set it.
+- `clientId` and `callbackPort` are only used by `auth login --oauth`, and both are required for it, from the flag, the environment, the user file or, last, the app stored by an earlier sign-in. A missing one fails before anything is sent and names where to set it.
 - Configuration files must not contain tokens, passwords or client secrets; a file that does is refused.
 - `fields` maps your own short names to field ids (see [Custom fields](#custom-fields)).
 - `workflow` lists the statuses of your workflow in the order an issue moves through them (see [Reaching a status](#reaching-a-status)).
