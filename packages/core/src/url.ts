@@ -80,3 +80,18 @@ export function urlPath(
   });
   return result;
 }
+
+/**
+ * Validates a TCP port given as a setting, such as a fixed sign-in callback port. Returns the
+ * value unchanged so it can be used as a `SettingSpec.validate`.
+ */
+export function validatePort(value: string): string {
+  const port = Number(value);
+  if (!/^\d+$/.test(value) || port < 1 || port > 65_535) {
+    throw new CliError('usage', `"${value}" is not a valid port number.`, {
+      code: 'invalid_port',
+      next: ['Use a number between 1 and 65535.'],
+    });
+  }
+  return value;
+}

@@ -3,6 +3,7 @@ import {
   normalizeServerUrl,
   resolveSettings,
   toolEnvVar,
+  validatePort,
   type ConfigEnvironment,
   type ServerUrl,
   type SettingSpecs,
@@ -14,17 +15,6 @@ export const TOOL = 'forgejo';
 export const LOGIN_COMMAND = 'sdlc-forgejo auth login';
 
 const envVar = (name: string): string => toolEnvVar(TOOL, name);
-
-function validatePort(value: string): string {
-  const port = Number(value);
-  if (!/^\d+$/.test(value) || port < 1 || port > 65_535) {
-    throw new CliError('usage', `"${value}" is not a valid port number.`, {
-      code: 'invalid_port',
-      next: ['Use a number between 1 and 65535.'],
-    });
-  }
-  return value;
-}
 
 /**
  * Every setting the tool reads, resolved flag, environment variable, project file, user file.

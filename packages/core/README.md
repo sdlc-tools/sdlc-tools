@@ -195,6 +195,8 @@ Files are JSON objects with one section per tool; values are strings:
 
 `normalizeServerUrl` validates a server address: https is required (plain http only for `localhost`, `127.0.0.1` and `[::1]`), user names and passwords in the address are rejected, and a path prefix is kept. `urlPath` is a tagged template that percent-encodes each value as one path segment and rejects `.`, `..` and empty segments.
 
+`validatePort` checks a TCP port given as a setting, such as a fixed sign-in callback port: whole numbers from 1 to 65535 pass and come back unchanged, anything else fails with the usage error `invalid_port`. Pass it as a setting's `validate`.
+
 ## Credentials
 
 Credentials are kept in the operating system credential store: macOS Keychain, Windows Credential Manager, and on Linux the Secret Service API with the kernel keyring as a fallback when no service is running. The native binding (`@napi-rs/keyring`, prebuilt, no install scripts) is loaded on first use, so commands that never touch credentials never load it.
@@ -225,6 +227,16 @@ The command decides when to read. `sdlc-jira auth login` takes the token from st
 
 Endpoints, client id, scopes and the callback port are always parameters.
 
+### Confidential clients
+
+Some servers, Atlassian's among them, authenticate the app with its `client_secret` at the token endpoint and do not document PKCE. For such a server:
+
+- Set `clientSecret` on the `OAuthClient`. It is sent as the `client_secret` parameter of the code exchange and of every refresh, including those `OAuthSession` makes, and only to the token endpoint. It is never part of the authorization address or an error.
+- Set `tokenRequestFormat: 'json'` if the server documents a JSON request body instead of the form body of [RFC 6749 §4.1.3](https://www.rfc-editor.org/rfc/rfc6749#section-4.1.3), which is the default.
+- Pass `pkce: false` to `loginWithPkce` to leave the PKCE challenge and verifier out. By default they are sent, also next to a client secret. `state` is checked either way.
+
+The tool decides where the secret lives. It reads it with `readSecret` and keeps it in the credential store; configuration files refuse any key that looks like a secret.
+
 ## HTTP client
 
 `HttpClient` wraps an injected `fetch`: a base URL (path prefixes are kept), JSON and form bodies, query parameters, a default timeout of 30 seconds, cancellation, an `AuthProvider`, and the error translation above. Any 2xx status is success. Requests are never retried, except once after a 401 when the auth provider can renew its credentials.
@@ -233,14 +245,14 @@ Endpoints, client id, scopes and the callback port are always parameters.
 
 `@sdlc-tools/core/testing` provides what a tool needs to test itself without a network, a keychain, a disk or a process:
 
-| Export                                           | Purpose                                                                                                                             |
-| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `execute(cli, argv, ...)`                        | Runs a CLI in memory; returns the exit code, stdout, stderr, the network calls made and the store.                                  |
-| `mockFetch`, `forbidFetch`                       | A recording `fetch`; `forbidFetch` fails on any call, to prove a command failed locally.                                            |
-| `jsonResponse`, `textResponse`, `networkFailure` | Builders for responses and transport failures.                                                                                      |
-| `MemorySecretStore`                              | An in-memory credential store.                                                                                                      |
-| `MemoryFiles`                                    | An in-memory file reader for configuration files; starts empty, so no test depends on the disk.                                     |
-| `FakeAuthorizationServer`                        | An OAuth server that enforces PKCE verification, single-use codes and refresh-token rotation, and a browser that approves sign-ins. |
+| Export                                           | Purpose                                                                                                                                                                                                                                                              |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `execute(cli, argv, ...)`                        | Runs a CLI in memory; returns the exit code, stdout, stderr, the network calls made and the store.                                                                                                                                                                   |
+| `mockFetch`, `forbidFetch`                       | A recording `fetch`; `forbidFetch` fails on any call, to prove a command failed locally.                                                                                                                                                                             |
+| `jsonResponse`, `textResponse`, `networkFailure` | Builders for responses and transport failures.                                                                                                                                                                                                                       |
+| `MemorySecretStore`                              | An in-memory credential store.                                                                                                                                                                                                                                       |
+| `MemoryFiles`                                    | An in-memory file reader for configuration files; starts empty, so no test depends on the disk.                                                                                                                                                                      |
+| `FakeAuthorizationServer`                        | An OAuth server that enforces PKCE verification, single-use codes and refresh-token rotation, and a browser that approves sign-ins. With `clientSecret` it is a confidential client of a server without PKCE; `tokenRequestFormat` makes it insist on that encoding. |
 
 By default `execute` uses `forbidFetch`, so a test must say when it expects network traffic, and an empty `MemoryFiles`, so configuration files exist only when a test adds them. Standard input is empty and not a terminal unless the `stdin` option says otherwise: a string is piped input, and `{ typed: '…' }` makes it a terminal where the person enters that line at the hidden prompt. The prompt appears on stderr and the typed line nowhere, as on a real terminal. Command code reads the files a user points it at, and configuration files, through `runtime.files` rather than `node:fs`, which keeps in-process tests independent of disk and scheduler latency. A package reading its own manifest once at load time is the exception.
 
@@ -249,4 +261,4 @@ By default `execute` uses `forbidFetch`, so a test must say when it expects netw
 - Project files choose the server. A repository you did not write can contain a `.sdlc-tools.json` that points a tool at another server. Keychain credentials are bound to the server they were issued for and are not offered to it, but a token supplied through an environment variable is sent to whichever server is configured. Tools should set `fromProjectFile: false` on the server address, and you should inspect a repository's `.sdlc-tools.json` before running a tool in a checkout you do not trust.
 - The loopback listener binds to `127.0.0.1` only, validates `state` and `Host`, serves static pages that never echo request content, sets `Referrer-Policy: no-referrer`, and is closed as soon as the sign-in ends.
 - Plain http is refused for any server address except loopback hosts.
-- The OAuth authorization address printed to the terminal contains the `state` and the PKCE challenge, which are not secrets. The verifier, codes and tokens are never printed or included in errors.
+- The OAuth authorization address printed to the terminal contains the `state` and the PKCE challenge, which are not secrets. The verifier, codes, tokens and a client secret are never printed or included in errors.

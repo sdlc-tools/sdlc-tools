@@ -17,6 +17,13 @@ export interface PkceLoginOptions {
   readonly port?: number;
   /** Path of the redirect address; `/callback` by default. */
   readonly callbackPath?: string;
+  /**
+   * Send a PKCE challenge and prove the verifier (RFC 7636); `true` by default.
+   * Set `false` for a confidential client of a server that does not document
+   * PKCE: it authenticates with `client.clientSecret` instead, and the
+   * authorization request then carries no `code_challenge`.
+   */
+  readonly pkce?: boolean;
   /** How long to wait for the browser; five minutes by default. */
   readonly timeoutMs?: number;
   /** Extra authorization request parameters, such as `prompt`. */
@@ -236,7 +243,8 @@ function listenForCallback(options: {
  *    while trying to open it in the browser;
  * 2. accepts only a callback whose `state` matches, so stray or forged requests
  *    are answered with 400 and ignored;
- * 3. exchanges the code, proving possession of the PKCE verifier.
+ * 3. exchanges the code, proving possession of the PKCE verifier (and the
+ *    client secret, when the client has one).
  *
  * The listener is closed on every outcome: success, denial, timeout and cancel.
  */
@@ -244,7 +252,7 @@ export async function loginWithPkce(
   runtime: LoginRuntime,
   options: PkceLoginOptions,
 ): Promise<OAuthTokens> {
-  const verifier = generateCodeVerifier();
+  const verifier = options.pkce === false ? undefined : generateCodeVerifier();
   const state = generateState();
 
   const listener = await listenForCallback({
@@ -261,7 +269,7 @@ export async function loginWithPkce(
     const authorizationUrl = buildAuthorizationUrl(options, {
       redirectUri: listener.redirectUri,
       state,
-      codeChallenge: computeCodeChallenge(verifier),
+      ...(verifier === undefined ? {} : { codeChallenge: computeCodeChallenge(verifier) }),
     });
 
     runtime.log(`Open this address in your browser to sign in:\n\n  ${authorizationUrl}\n`);
@@ -284,15 +292,21 @@ export async function loginWithPkce(
 
 export function buildAuthorizationUrl(
   options: PkceLoginOptions,
-  request: { readonly redirectUri: string; readonly state: string; readonly codeChallenge: string },
+  request: {
+    readonly redirectUri: string;
+    readonly state: string;
+    readonly codeChallenge?: string | undefined;
+  },
 ): string {
   const url = new URL(options.client.authorizationEndpoint);
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('client_id', options.client.clientId);
   url.searchParams.set('redirect_uri', request.redirectUri);
   url.searchParams.set('state', request.state);
-  url.searchParams.set('code_challenge', request.codeChallenge);
-  url.searchParams.set('code_challenge_method', 'S256');
+  if (request.codeChallenge !== undefined) {
+    url.searchParams.set('code_challenge', request.codeChallenge);
+    url.searchParams.set('code_challenge_method', 'S256');
+  }
   if (options.scopes !== undefined && options.scopes.length > 0) {
     url.searchParams.set('scope', options.scopes.join(' '));
   }

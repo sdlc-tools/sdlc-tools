@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { type CliError } from '../src/errors.js';
-import { normalizeServerUrl, urlPath } from '../src/url.js';
+import { normalizeServerUrl, urlPath, validatePort } from '../src/url.js';
 
 describe('normalizeServerUrl', () => {
   it('keeps the origin and any path prefix, without a trailing slash', () => {
@@ -52,6 +52,18 @@ describe('urlPath', () => {
   it.each(['', '.', '..'])('rejects the dot-segment value "%s"', (value) => {
     expect(() => urlPath`/repos/${value}`).toThrow(
       expect.objectContaining({ code: 'invalid_path_segment' }) as Error,
+    );
+  });
+});
+
+describe('validatePort', () => {
+  it.each(['1', '8765', '65535'])('accepts "%s" and returns it unchanged', (value) => {
+    expect(validatePort(value)).toBe(value);
+  });
+
+  it.each(['', '0', '65536', '-1', '80.5', '8 0', 'http'])('rejects "%s"', (value) => {
+    expect(() => validatePort(value)).toThrow(
+      expect.objectContaining({ code: 'invalid_port', kind: 'usage' }) as Error,
     );
   });
 });
