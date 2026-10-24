@@ -1,5 +1,13 @@
 # @sdlc-tools/forgejo
 
+## 0.2.2
+
+### Patch Changes
+
+- [#46](https://github.com/sdlc-tools/sdlc-tools/pull/46) [`978a4f7`](https://github.com/sdlc-tools/sdlc-tools/commit/978a4f76093e483445365cdb0877d320ebe3321d) Thanks [@Seungwoo321](https://github.com/Seungwoo321)! - The callback port is validated by `validatePort` from `@sdlc-tools/core`; the message and exit code are unchanged.
+- Updated dependencies [[`1b06293`](https://github.com/sdlc-tools/sdlc-tools/commit/1b06293b5e4a0af9006c6da425a657dc40e99d98), [`978a4f7`](https://github.com/sdlc-tools/sdlc-tools/commit/978a4f76093e483445365cdb0877d320ebe3321d)]:
+  - @sdlc-tools/core@0.3.0
+
 ## 0.2.1
 
 ### Patch Changes

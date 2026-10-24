@@ -1,5 +1,17 @@
 # @sdlc-tools/jira
 
+## 0.3.0
+
+### Minor Changes
+
+- [#42](https://github.com/sdlc-tools/sdlc-tools/pull/42) [`fbd6276`](https://github.com/sdlc-tools/sdlc-tools/commit/fbd627619b7af97bdf6f1eade2d07d855938cb29) Thanks [@Seungwoo321](https://github.com/Seungwoo321)! - `auth login --oauth` signs in to Jira Cloud with OAuth 2.0 (3LO) in the browser, as a confidential client of an OAuth app you create. The client id and the fixed callback port come from the `clientId` and `callbackPort` settings (user file, `SDLC_JIRA_CLIENT_ID`, `SDLC_JIRA_CALLBACK_PORT`, `--client-id`, `--callback-port`); the client secret is typed at a prompt that does not show it or piped in with `--client-secret-stdin`, and is kept in the keychain only. Later sign-ins for the same client id reuse the stored secret without asking; `--client-secret-stdin` replaces it, and a stored secret the server refuses says so. After sign-in the cloud id of the configured site is resolved (a site that was not allowed fails and names the allowed ones), and every command then calls the Jira API through `api.atlassian.com`. Access tokens are renewed before they expire and once after a 401, and the rotated refresh token is written back to the keychain. `auth status` shows the kind of credential (`oauth` or `token`) and the expiry of an OAuth access token, and `auth logout` removes the client secret too. API token sign-in is unchanged.
+
+### Patch Changes
+
+- [#46](https://github.com/sdlc-tools/sdlc-tools/pull/46) [`978a4f7`](https://github.com/sdlc-tools/sdlc-tools/commit/978a4f76093e483445365cdb0877d320ebe3321d) Thanks [@Seungwoo321](https://github.com/Seungwoo321)! - The callback port is validated by `validatePort` from `@sdlc-tools/core`; the message and exit code are unchanged.
+- Updated dependencies [[`1b06293`](https://github.com/sdlc-tools/sdlc-tools/commit/1b06293b5e4a0af9006c6da425a657dc40e99d98), [`978a4f7`](https://github.com/sdlc-tools/sdlc-tools/commit/978a4f76093e483445365cdb0877d320ebe3321d)]:
+  - @sdlc-tools/core@0.3.0
+
 ## 0.2.1
 
 ### Patch Changes

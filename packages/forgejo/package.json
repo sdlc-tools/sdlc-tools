@@ -1,6 +1,6 @@
 {
   "name": "@sdlc-tools/forgejo",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Pull request command-line client for Forgejo and Gitea, designed for people and AI agents alike: OAuth sign-in with PKCE, credentials in the OS keychain, merges gated by a configurable policy of statuses, approvals and merge method.",
   "license": "MIT",
   "type": "module",
