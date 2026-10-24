@@ -121,7 +121,7 @@ export async function resolveOAuthSettings(
   stored: OAuthApp | undefined,
 ): Promise<OAuthSettings> {
   try {
-    const { values } = await resolveSettings(
+    const { values: app } = await resolveSettings(
       context,
       TOOL,
       {
@@ -134,6 +134,15 @@ export async function resolveOAuthSettings(
           fromProjectFile: false,
           ...(stored === undefined ? {} : { default: stored.clientId }),
         },
+      },
+      { clientId: flags.clientId },
+    );
+    // The stored port belongs to the stored app: another app's callback URL registers its own.
+    const storedPort = app.clientId === stored?.clientId ? stored.callbackPort : undefined;
+    const { values } = await resolveSettings(
+      context,
+      TOOL,
+      {
         callbackPort: {
           label: 'sign-in callback port',
           key: 'callbackPort',
@@ -142,12 +151,12 @@ export async function resolveOAuthSettings(
           required: true,
           fromProjectFile: false,
           validate: validatePort,
-          ...(stored?.callbackPort === undefined ? {} : { default: String(stored.callbackPort) }),
+          ...(storedPort === undefined ? {} : { default: String(storedPort) }),
         },
       },
-      flags,
+      { callbackPort: flags.callbackPort },
     );
-    return { clientId: values.clientId, callbackPort: Number(values.callbackPort) };
+    return { clientId: app.clientId, callbackPort: Number(values.callbackPort) };
   } catch (error) {
     if (error instanceof CliError && error.code === 'missing_setting') {
       throw error.with({

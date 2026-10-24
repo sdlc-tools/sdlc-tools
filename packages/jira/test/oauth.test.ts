@@ -264,6 +264,20 @@ describe('auth login --oauth again', () => {
     expect(again.code, again.stderr).toBe(0);
   });
 
+  it('does not lend the stored callback port to another app', async () => {
+    await lab.signIn();
+    lab.fetch.calls.length = 0;
+
+    const run = await lab.run(['auth', 'login', '--oauth', '--client-id', 'another-app'], {
+      stdin: '',
+    });
+
+    expect(run.code).toBe(2);
+    expect(run.stderr).toContain('Missing sign-in callback port.');
+    expect(lab.fetch.calls).toHaveLength(0);
+    expect(lab.auth.authorizations).toHaveLength(1);
+  });
+
   it('signs in again after the refresh token expired, without the secret', async () => {
     await lab.signIn();
     lab.now = TEST_NOW + 91 * 24 * HOUR;
