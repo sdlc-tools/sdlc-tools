@@ -10,7 +10,6 @@ import {
   saveCredential,
   type CommandContext,
   type CommandResult,
-  type CredentialTarget,
 } from '@sdlc-tools/core';
 import { JiraClient } from '../client.js';
 import {
@@ -38,6 +37,7 @@ import {
   gatewayBaseUrl,
   loadOAuthApp,
   saveOAuthApp,
+  type OAuthApp,
 } from '../oauth.js';
 
 const TOKEN_LABEL = 'API token';
@@ -104,18 +104,15 @@ interface ClientSecret {
  */
 async function chooseClientSecret(
   context: CommandContext,
-  owner: CredentialTarget,
+  stored: OAuthApp | undefined,
   clientId: string,
   replace: boolean,
 ): Promise<ClientSecret> {
-  if (!replace) {
-    const app = await loadOAuthApp(context, owner);
-    if (app?.clientId === clientId) {
-      context.log(
-        'Using the client secret stored in the keychain. Pass --client-secret-stdin to enter another one.',
-      );
-      return { value: app.clientSecret, stored: true };
-    }
+  if (!replace && stored?.clientId === clientId) {
+    context.log(
+      'Using the client secret stored in the keychain. Pass --client-secret-stdin to enter another one.',
+    );
+    return { value: stored.clientSecret, stored: true };
   }
   return { value: await obtainClientSecret(context, replace), stored: false };
 }
@@ -167,11 +164,12 @@ async function loginWithOAuth(
   target: SiteTarget,
   flags: LoginFlags,
 ): Promise<CommandResult> {
-  const settings = await resolveOAuthSettings(context, flags);
   const owner = credentialTarget(target);
+  const storedApp = await loadOAuthApp(context, owner);
+  const settings = await resolveOAuthSettings(context, flags, storedApp);
   const secret = await chooseClientSecret(
     context,
-    owner,
+    storedApp,
     settings.clientId,
     flags.clientSecretStdin,
   );
@@ -218,6 +216,7 @@ async function loginWithOAuth(
     clientId: settings.clientId,
     clientSecret: secret.value,
     cloudId,
+    callbackPort: settings.callbackPort,
   });
   await saveCredential(context, owner, { kind: 'oauth', ...tokens });
   return {
@@ -246,10 +245,12 @@ const login = defineCommand({
     'With --oauth, signs in with OAuth 2.0 (3LO) in the browser. The OAuth app has to be created in the',
     'Atlassian developer console first, with the resource-level grant, the classic scopes read:jira-work,',
     'write:jira-work and read:jira-user, and the callback URL http://127.0.0.1:<port>/callback. Its client id',
-    'and that port come from the settings clientId and callbackPort (or --client-id and --callback-port);',
-    'its client secret is typed at a prompt that does not show it, or piped in with --client-secret-stdin,',
-    'and is kept in the keychain only. Later sign-ins with the same client id reuse the stored secret;',
-    'pass --client-secret-stdin to replace it, for example after regenerating it. Tokens are renewed automatically.',
+    'and that port come from --client-id and --callback-port, the environment, or the settings clientId and',
+    'callbackPort; once a sign-in has succeeded they are kept in the keychain with the app, and later',
+    'sign-ins need none of them. The client secret is typed at a prompt that does not show it, or piped in',
+    'with --client-secret-stdin, and is kept in the keychain only. Later sign-ins with the same client id',
+    'reuse the stored secret; pass --client-secret-stdin to replace it, for example after regenerating it.',
+    'Tokens are renewed automatically.',
   ].join(' '),
   options: {
     ...connectionOptions,
@@ -332,7 +333,7 @@ const status = defineCommand({
   name: 'status',
   summary: 'Show which account the stored or environment credentials belong to',
   description:
-    'Asks the site who the credentials belong to, and shows how you are signed in (an OAuth sign-in or an API token) and, for OAuth, when the current access token expires. The token is renewed before it does, so the date moves on.',
+    'Asks the site who the credentials belong to, and shows how you are signed in (an OAuth sign-in or an API token) and, for OAuth, the client id of the app and when the current access token expires. The token is renewed before it does, so the date moves on.',
   options: connectionOptions,
   async run({ options }, context) {
     const connection = await connect(context, options);
@@ -342,7 +343,7 @@ const status = defineCommand({
     const where = connection.source === 'env' ? 'environment' : 'keychain';
     const as =
       connection.kind === 'oauth'
-        ? `${me.displayName} with OAuth${expiresAt === null ? '' : ` (access token valid until ${expiresAt}, renewed automatically)`}`
+        ? `${me.displayName} with OAuth (client id ${connection.clientId}${expiresAt === null ? '' : `, access token valid until ${expiresAt}, renewed automatically`})`
         : `${me.displayName} (${connection.email}) with an API token`;
     return {
       data: {
@@ -353,6 +354,7 @@ const status = defineCommand({
         displayName: me.displayName,
         email: connection.email ?? me.emailAddress ?? null,
         source: connection.source,
+        clientId: connection.clientId ?? null,
         expiresAt,
       },
       text: `Signed in to ${connection.site.host} as ${as}, credentials from the ${where}.`,

@@ -37,12 +37,15 @@ export const callbackUrl = (port: number): string => `http://127.0.0.1:${port}${
 /**
  * The OAuth app behind a stored sign-in, kept in the keychain next to the
  * tokens: the client secret is needed on every renewal, and the cloud id says
- * where the API gateway serves this site. Nothing here comes from a file.
+ * where the API gateway serves this site. The client id and the callback port
+ * let a later sign-in run without being told the app again; a record written
+ * before the port was kept has none. Nothing here comes from a file.
  */
 export interface OAuthApp {
   readonly clientId: string;
   readonly clientSecret: string;
   readonly cloudId: string;
+  readonly callbackPort: number | undefined;
 }
 
 const APP_TOOL = 'jira-oauth';
@@ -58,7 +61,7 @@ function parseApp(text: string): OAuthApp | undefined {
     return undefined;
   }
   if (typeof raw !== 'object' || raw === null) return undefined;
-  const { v, clientId, clientSecret, cloudId } = raw as Record<string, unknown>;
+  const { v, clientId, clientSecret, cloudId, callbackPort } = raw as Record<string, unknown>;
   if (
     v !== APP_FORMAT_VERSION ||
     typeof clientId !== 'string' ||
@@ -70,7 +73,14 @@ function parseApp(text: string): OAuthApp | undefined {
   ) {
     return undefined;
   }
-  return { clientId, clientSecret, cloudId };
+  const port =
+    typeof callbackPort === 'number' &&
+    Number.isInteger(callbackPort) &&
+    callbackPort >= 1 &&
+    callbackPort <= 65535
+      ? callbackPort
+      : undefined;
+  return { clientId, clientSecret, cloudId, callbackPort: port };
 }
 
 export async function saveOAuthApp(
